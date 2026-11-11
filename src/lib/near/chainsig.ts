@@ -2,19 +2,9 @@ import { chainAdapters, contracts } from "chainsig.js";
 import { createPublicClient, http, type Chain } from "viem";
 import { polygon } from "viem/chains";
 
-export type NearNetwork = "mainnet" | "testnet";
+import { EVM_PATH, MPC_CONTRACT, type NearNetwork } from "@/lib/near/chain-constants";
 
-/** MPC signer contracts (docs.near.org → Chain Signatures). */
-export const MPC_CONTRACT: Record<NearNetwork, string> = {
-  mainnet: "v1.signer",
-  testnet: "v1.signer-prod.testnet",
-};
-
-/**
- * Derivation path for a user's EVM address. One path = one address on every EVM chain.
- * Changing this string changes every user's address, so treat it as a constant forever.
- */
-export const EVM_PATH = "onebook-evm-1";
+export { EVM_PATH, MPC_CONTRACT, type NearNetwork };
 
 export function mpcContract(network: NearNetwork) {
   return new contracts.ChainSignatureContract({ networkId: network, contractId: MPC_CONTRACT[network] });

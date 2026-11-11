@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
+import { isAccountId } from "@/lib/near/chain-constants";
 import { deriveEvmAddress } from "@/lib/near/chainsig";
 
 export const dynamic = "force-dynamic";
-
-/** NEAR account id rules (same regex the hackathon API uses). */
-const ACCOUNT_RE = /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
 
 /**
  * GET /api/near/address?account=alice.near[&network=testnet]
@@ -15,7 +13,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const account = url.searchParams.get("account") ?? "";
   const network = url.searchParams.get("network") === "testnet" ? "testnet" : "mainnet";
-  if (account.length < 2 || account.length > 64 || !ACCOUNT_RE.test(account))
+  if (!isAccountId(account))
     return NextResponse.json({ error: "invalid NEAR account id" }, { status: 400 });
   return NextResponse.json(await deriveEvmAddress(account, network));
 }

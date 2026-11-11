@@ -131,14 +131,30 @@ control. There is no state in which onebook holds user funds.
 - EIP-712: `EVM.prepareTypedDataForSigning(typedData)` → `contract.sign({payloads, path, keyType: "Ecdsa"})`
   → `EVM.finalizeTypedDataSigning`.
 
-TODO(verify) before implementing: current Polymarket collateral token and contract addresses; 1Click
-supported destination chains and assets.
+### Signing flow as built (`/sign-test`)
+
+1. `POST /api/sign/prepare {account}` derives the user's EVM address, builds a Polymarket V2 BUY order with
+   `maker = signer = that address` and `signatureType = 0` (EOA), hashes it (EIP-712), and returns the
+   NEAR transaction for `v1.signer.sign`.
+2. The browser sends that transaction through the connected wallet (`@hot-labs/near-connect`). The
+   wallet holds the keys; onebook never sees them.
+3. `POST /api/sign/verify` converts the MPC result (`big_r`, `s`, `recovery_id`) to r||s||v and checks
+   that `recoverTypedDataAddress` equals the derived address.
+
+Polymarket CLOB V2 (live 2026-04-28): domain `Polymarket CTF Exchange` v`2`, chainId 137, exchange
+`0xE111180000d2663C0091e4f400237545B87B996B` (neg-risk `0xe2222d279d744050d28e00520010520000310F59`).
+Order fields: salt, maker, signer, tokenId, makerAmount, takerAmount, side, signatureType, timestamp,
+metadata, builder. Expiration is sent with the order but not signed.
+
+TODO(verify) before live use: signatureType meanings in V2; timestamp unit (ms assumed); pUSD contract
+address; 1Click supported destination chains and assets (pUSD is probably not a direct 1Click target, so
+a USDC → pUSD wrap step may be needed).
 
 ### Venue notes
 
 | Venue | Chain | Collateral | Order signing | US status |
 |---|---|---|---|---|
-| Polymarket (intl) | Polygon | USDC-family (verify) | EIP-712, secp256k1 | close-only (cannot open) |
+| Polymarket (intl) | Polygon | pUSD (USDC-backed ERC-20, CLOB V2) | EIP-712 V2 Order, secp256k1 | close-only (cannot open) |
 | Kalshi via DFlow | Solana | USDC | Solana tx; Proof KYC required to buy | US-regulated; KYC |
 | Hyperliquid HIP-4 | HyperCore | USDH (verify) | secp256k1 typed data | excluded by ToS (verify) |
 

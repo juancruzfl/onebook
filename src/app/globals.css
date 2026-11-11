@@ -263,3 +263,41 @@ td {
 footer {
   margin-top: 24px;
 }
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.wallet {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+}
+.wallet-id {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.85rem;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mono {
+  font-family: var(--font-geist-mono), monospace;
+  overflow-wrap: anywhere;
+}
+.ok-text {
+  color: var(--ok);
+}
+.steps {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+code {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.9em;
+}
