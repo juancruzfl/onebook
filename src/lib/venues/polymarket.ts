@@ -68,7 +68,7 @@ interface ClobBook {
 export const polymarket: VenueAdapter = {
   id: "polymarket",
   displayName: "Polymarket",
-  collateral: { chain: "polygon", asset: "USDC.e" }, // TODO(verify): confirm current CLOB collateral token before execution
+  collateral: { chain: "polygon", asset: "pUSD" }, // CLOB V2 collateral (USDC-backed). TODO(verify) contract address
   listMarkets: listUpDown,
   async getAsks(listing: Listing, side: Side): Promise<Level[]> {
     const book = await getJson<ClobBook>(`${CLOB}/book?token_id=${listing.legs[side]}`);

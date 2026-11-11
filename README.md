@@ -56,7 +56,9 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Router quote (split across books, fees, minimums) | ✅ done, unit-tested |
 | Web UI + `/api/markets` + `/api/quote` | ✅ done |
 | NEAR Intents (1Click) swap to venue collateral | ⏳ next |
-| Chain Signatures derived address + MPC-signed venue order | ⏳ next |
+| Chain Signatures: derive the user's EVM address from their NEAR account (`/api/near/address`) | ✅ done, checked against `v1.signer` |
+| Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
+| Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ built; first mainnet signature pending |
 | Execution queue (state machine, see `docs/ARCHITECTURE.md`) | ⏳ next |
 | Live order submission to venues | 🚫 dry run only (see Compliance) |
 
@@ -80,10 +82,16 @@ npm test               # unit tests for extractors, matcher, router
    payout the split earns than the best single venue. Nothing is signed or sent.
 4. Tick **show related (non-routable) groups** to see pairs onebook refuses to route and the
    differences that block them.
+5. Open http://localhost:3000/sign-test, click **Connect wallet**, then **Sign a test order**. Your wallet
+   asks you to approve one transaction to `v1.signer`: 1 yoctoNEAR attached, up to 300 TGas prepaid,
+   and unused gas refunded. After it lands, the page shows **✓ Valid: the order was signed by your
+   address** and links to the NEAR transaction. The order uses a placeholder token id and is never sent
+   to Polymarket.
 
 API, if you prefer curl:
 
 ```sh
+curl -s 'localhost:3000/api/near/address?account=example.near'   # EVM address owned by that NEAR account
 curl -s localhost:3000/api/markets | jq '.groups[] | {key, bestTier}'
 curl -s -X POST localhost:3000/api/quote -H 'Content-Type: application/json' -d '{
   "markets": [{"venue":"polymarket","marketId":"<conditionId>"},{"venue":"kalshi","marketId":"<ticker>"}],
@@ -117,6 +125,10 @@ src/lib/extractors/*.ts    rules text → PayoutSpec, one file per venue (pure, 
 src/lib/venues/*.ts        venue adapters (listing, order books, fees) + registry
 src/lib/matcher.ts         compareSpecs / matchListings → tiers + diffs
 src/lib/router.ts          planRoute: split a budget across fungible books
+src/lib/near/chainsig.ts   Chain Signatures: MPC contract, EVM address derivation (server)
+src/lib/near/mpc.ts        MPC `sign` transaction + signature conversion (browser-safe)
+src/lib/polymarket/order.ts  Polymarket CLOB V2 EIP-712 order
+src/components/Wallet*.tsx connect-wallet provider and button
 src/app/api/*              /api/markets, /api/quote
 src/app/page.tsx           UI
 tests/                     vitest, fixtures from real API responses

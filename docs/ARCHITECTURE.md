@@ -117,15 +117,44 @@ control. There is no state in which onebook holds user funds.
 - CLOB API credentials, derived by signing Polymarket's auth message through the MPC signer. The server
   stores them. They can only post or cancel orders the user has already signed.
 
-TODO(verify) before implementing: current Polymarket collateral token and contract addresses; 1Click
-supported destination chains and assets; whether the MPC signer contract needs an attached deposit for
-`sign`.
+### Chain Signatures facts (verified 2026-11-11)
+
+- MPC contracts: `v1.signer` (mainnet), `v1.signer-prod.testnet` (testnet).
+- Derivation path for user EVM addresses: `onebook-evm-1` (`src/lib/near/chainsig.ts`). One path gives
+  one address on every EVM chain. **Never change it**, because that would change every user's address.
+- chainsig.js derives addresses locally from the MPC root key. This was checked against the contract's
+  own `derived_public_key` view call for `example.near` → `0x614ed9cC94913BFb33d7a70A8460547379Ca8D0E`.
+  (The example address on docs.near.org does not match the current root key.)
+- `sign` is a function call with **1 yoctoNEAR attached** and 300 TGas prepaid. Function-call access keys
+  cannot attach a deposit, so every signature needs the user's full-access key, i.e. a wallet
+  confirmation. This is why orders are signed up front at quote time, not later by the queue.
+- EIP-712: `EVM.prepareTypedDataForSigning(typedData)` → `contract.sign({payloads, path, keyType: "Ecdsa"})`
+  → `EVM.finalizeTypedDataSigning`.
+
+### Signing flow as built (`/sign-test`)
+
+1. `POST /api/sign/prepare {account}` derives the user's EVM address, builds a Polymarket V2 BUY order with
+   `maker = signer = that address` and `signatureType = 0` (EOA), hashes it (EIP-712), and returns the
+   NEAR transaction for `v1.signer.sign`.
+2. The browser sends that transaction through the connected wallet (`@hot-labs/near-connect`). The
+   wallet holds the keys; onebook never sees them.
+3. `POST /api/sign/verify` converts the MPC result (`big_r`, `s`, `recovery_id`) to r||s||v and checks
+   that `recoverTypedDataAddress` equals the derived address.
+
+Polymarket CLOB V2 (live 2026-04-28): domain `Polymarket CTF Exchange` v`2`, chainId 137, exchange
+`0xE111180000d2663C0091e4f400237545B87B996B` (neg-risk `0xe2222d279d744050d28e00520010520000310F59`).
+Order fields: salt, maker, signer, tokenId, makerAmount, takerAmount, side, signatureType, timestamp,
+metadata, builder. Expiration is sent with the order but not signed.
+
+TODO(verify) before live use: signatureType meanings in V2; timestamp unit (ms assumed); pUSD contract
+address; 1Click supported destination chains and assets (pUSD is probably not a direct 1Click target, so
+a USDC → pUSD wrap step may be needed).
 
 ### Venue notes
 
 | Venue | Chain | Collateral | Order signing | US status |
 |---|---|---|---|---|
-| Polymarket (intl) | Polygon | USDC-family (verify) | EIP-712, secp256k1 | close-only (cannot open) |
+| Polymarket (intl) | Polygon | pUSD (USDC-backed ERC-20, CLOB V2) | EIP-712 V2 Order, secp256k1 | close-only (cannot open) |
 | Kalshi via DFlow | Solana | USDC | Solana tx; Proof KYC required to buy | US-regulated; KYC |
 | Hyperliquid HIP-4 | HyperCore | USDH (verify) | secp256k1 typed data | excluded by ToS (verify) |
 

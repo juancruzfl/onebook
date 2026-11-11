@@ -5,6 +5,7 @@ import type { Diff, Tier } from "@/lib/matcher";
 import type { RoutePlan } from "@/lib/router";
 import type { Listing, Side } from "@/lib/venues/types";
 import type { VenueStatus } from "@/lib/venues";
+import { WalletButton } from "@/components/WalletButton";
 
 interface Pair {
   a: Listing;
@@ -77,9 +78,12 @@ export default function Home() {
             their title.
           </p>
         </div>
-        <button onClick={load} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </button>
+        <div className="row">
+          <button onClick={load} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+          <WalletButton />
+        </div>
       </header>
 
       {data && (
