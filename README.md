@@ -56,7 +56,8 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Router quote (split across books, fees, minimums) | ✅ done, unit-tested |
 | Web UI + `/api/markets` + `/api/quote` | ✅ done |
 | NEAR Intents (1Click) swap to venue collateral | ⏳ next |
-| Chain Signatures derived address + MPC-signed venue order | ⏳ next |
+| Chain Signatures: derive the user's EVM address from their NEAR account (`/api/near/address`) | ✅ done, checked against `v1.signer` |
+| Chain Signatures: MPC-signed venue order | ⏳ next |
 | Execution queue (state machine, see `docs/ARCHITECTURE.md`) | ⏳ next |
 | Live order submission to venues | 🚫 dry run only (see Compliance) |
 
@@ -84,6 +85,7 @@ npm test               # unit tests for extractors, matcher, router
 API, if you prefer curl:
 
 ```sh
+curl -s 'localhost:3000/api/near/address?account=example.near'   # EVM address owned by that NEAR account
 curl -s localhost:3000/api/markets | jq '.groups[] | {key, bestTier}'
 curl -s -X POST localhost:3000/api/quote -H 'Content-Type: application/json' -d '{
   "markets": [{"venue":"polymarket","marketId":"<conditionId>"},{"venue":"kalshi","marketId":"<ticker>"}],
@@ -117,6 +119,7 @@ src/lib/extractors/*.ts    rules text → PayoutSpec, one file per venue (pure, 
 src/lib/venues/*.ts        venue adapters (listing, order books, fees) + registry
 src/lib/matcher.ts         compareSpecs / matchListings → tiers + diffs
 src/lib/router.ts          planRoute: split a budget across fungible books
+src/lib/near/chainsig.ts   Chain Signatures: MPC contract, EVM address derivation
 src/app/api/*              /api/markets, /api/quote
 src/app/page.tsx           UI
 tests/                     vitest, fixtures from real API responses

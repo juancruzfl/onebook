@@ -117,9 +117,22 @@ control. There is no state in which onebook holds user funds.
 - CLOB API credentials, derived by signing Polymarket's auth message through the MPC signer. The server
   stores them. They can only post or cancel orders the user has already signed.
 
+### Chain Signatures facts (verified 2026-11-11)
+
+- MPC contracts: `v1.signer` (mainnet), `v1.signer-prod.testnet` (testnet).
+- Derivation path for user EVM addresses: `onebook-evm-1` (`src/lib/near/chainsig.ts`). One path gives
+  one address on every EVM chain. **Never change it**, because that would change every user's address.
+- chainsig.js derives addresses locally from the MPC root key. This was checked against the contract's
+  own `derived_public_key` view call for `example.near` → `0x614ed9cC94913BFb33d7a70A8460547379Ca8D0E`.
+  (The example address on docs.near.org does not match the current root key.)
+- `sign` is a function call with **1 yoctoNEAR attached** and 300 TGas prepaid. Function-call access keys
+  cannot attach a deposit, so every signature needs the user's full-access key, i.e. a wallet
+  confirmation. This is why orders are signed up front at quote time, not later by the queue.
+- EIP-712: `EVM.prepareTypedDataForSigning(typedData)` → `contract.sign({payloads, path, keyType: "Ecdsa"})`
+  → `EVM.finalizeTypedDataSigning`.
+
 TODO(verify) before implementing: current Polymarket collateral token and contract addresses; 1Click
-supported destination chains and assets; whether the MPC signer contract needs an attached deposit for
-`sign`.
+supported destination chains and assets.
 
 ### Venue notes
 
