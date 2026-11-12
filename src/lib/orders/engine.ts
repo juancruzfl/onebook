@@ -8,7 +8,7 @@
  *  - The venue order is never posted: ORDER_DRY_RUN is final (US geo restriction, see README → Compliance).
  */
 import { randomUUID } from "node:crypto";
-import { createPublicClient, erc20Abi, http, isAddressEqual, recoverTypedDataAddress, type Address } from "viem";
+import { createPublicClient, erc20Abi, fallback, http, isAddressEqual, recoverTypedDataAddress, type Address } from "viem";
 import { polygon } from "viem/chains";
 import { ASSETS, getStatus, requestQuote, submitDeposit, tokenPriceUsd, USDC_POLYGON_ADDRESS, type QuoteResponse, type StatusResponse } from "@/lib/intents/oneclick";
 import { deriveEvmAddress } from "@/lib/near/chainsig";
@@ -41,7 +41,16 @@ export interface EngineDeps {
   now: () => Date;
 }
 
-const polygonClient = () => createPublicClient({ chain: polygon, transport: http(process.env.POLYGON_RPC_URL) });
+/**
+ * Public Polygon RPCs, tried in order (viem's default, polygon-rpc.com, now answers "tenant disabled").
+ * POLYGON_RPC_URL, if set, goes first. Verified 2026-11-12.
+ */
+export const POLYGON_RPCS = ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org", "https://1rpc.io/matic"];
+const polygonClient = () =>
+  createPublicClient({
+    chain: polygon,
+    transport: fallback([process.env.POLYGON_RPC_URL, ...POLYGON_RPCS].filter((u): u is string => !!u).map((u) => http(u, { timeout: 8_000 }))),
+  });
 
 export const defaultDeps: EngineDeps = {
   computeQuote,
