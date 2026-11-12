@@ -123,6 +123,37 @@ clicks.
   concurrent runs. Transient RPC or 1Click errors are retried on the next tick.
 - It survives restarts because all state is in the table. Hackathon scale: one Node process, no broker.
 
+### Live split orders on regulated venues (`src/lib/live`)
+
+A second execution path, for venues where the user trades from their own verified account instead of an
+on-chain address: Kalshi and Polymarket US (both CFTC-regulated, `LIVE_VENUES`).
+
+```
+POST /api/live/execute { markets, side, budgetUsd, requestId, confirm: true }   (localhost only)
+  guards     ONEBOOK_LIVE_ORDERS=on, budget <= MAX_LIVE_USD ($10), every market in LIVE_VENUES,
+             an API key for every leg, requestId never executed before
+  re-quote   computeQuote(): re-lists, re-checks fungibility, reads live books → allocations + limit prices
+  legs       one fill-or-kill limit order per venue, in parallel
+             Kalshi        POST /trade-api/v2/portfolio/events/orders  side bid|ask, YES price, whole contracts
+             Polymarket US POST /v1/orders  ORDER_INTENT_BUY_LONG|BUY_SHORT, YES price, 0.01 contracts
+  result     per leg filled / not-filled / error; outcome all-filled | partial | none-filled
+             stored in the live_executions table (same SQLite file as the order queue)
+```
+
+Signing (`src/lib/live/auth.ts`): both venues sign `timestamp_ms + METHOD + path` (no query string). Kalshi
+uses RSA-PSS/SHA-256 (or Ed25519), Polymarket US Ed25519 from the first 32 bytes of the base64 secret.
+
+Atomicity: each leg is all-or-nothing at its limit price, but legs are not atomic with each other. A partial
+route (one venue filled, one killed because its book moved) is reported, not retried or unwound. With a $10
+cap the worst case is holding a smaller position than planned at a price no worse than quoted.
+
+How NEAR fits here: regulated venues hold funds in the user's own account (deposits must come from accounts
+in the user's name), so positions are not at a Chain Signatures address and 1Click cannot fund them directly.
+NEAR stays the settlement layer for on-chain venues.
+
+TODO(verify): Polymarket US BUY_SHORT price convention in a live order (docs say prices always refer to YES);
+the `/v1/account/balances` response shape; Kalshi fractional counts on 15m markets (we send whole contracts).
+
 ### Gaps before live trading
 
 - pUSD: Polymarket V2 settles in pUSD; 1Click delivers USDC. A USDC → pUSD wrap transaction (signed via
@@ -184,8 +215,10 @@ markets on Solana.
 
 ## Known gaps
 
-- Fees: Kalshi's published formula is modelled without per-order rounding. Polymarket and Hyperliquid
-  fees are treated as 0 (TODO verify).
+- Fees: Kalshi's published formula is modelled without per-order rounding. Polymarket US uses
+  0.095 × C × p × (1 − p) (tier 1; banker's rounding ignored). Polymarket (international) and Hyperliquid
+  fees are treated as 0, but a third-party comparison lists 0.07 × C × p × (1 − p) for Polymarket
+  international 15m markets (TODO verify).
 - The Hyperliquid adapter is written against third-party docs. The live endpoint was unreachable from
   the dev machine when it was written.
 - Polymarket's 2026 TWAP wording does not say where the 60s window sits. It is modelled as

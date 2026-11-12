@@ -22,6 +22,13 @@ export interface MarketView {
   listings: Listing[];
   /** Worst tier among the chosen listings. "related" means nothing can be combined. */
   tier: Tier;
+  /**
+   * Largest subset of `listings` (2+) whose pairs are all `equivalent`, else empty. Quoted by default without
+   * any opt-in; the rest of `listings` is only added after the user accepts the differences.
+   */
+  core: Listing[];
+  /** Tier shown on the card: "equivalent" when a core exists, otherwise `tier`. */
+  badgeTier: Tier;
   pairs: GroupDto["pairs"];
   best: Record<Side, { price: number; venue: VenueId } | null>;
 }
@@ -52,15 +59,33 @@ export function toMarketView(g: GroupDto): MarketView | null {
   const tier: Tier =
     chosen.length < 2 ? "related" : pairs.reduce<Tier>((w, p) => (rank[p.tier] > rank[w] ? p.tier : w), "equivalent");
 
+  const core = equivalentCore(chosen, tierOf);
+  const badgeTier: Tier = core.length >= 2 ? "equivalent" : tier;
+
+  // Card prices come from what is quoted by default: the equivalent core if there is one.
+  const priced = core.length >= 2 ? core : chosen;
   const best = { yes: null, no: null } as MarketView["best"];
   for (const side of ["yes", "no"] as const)
-    for (const l of chosen) {
+    for (const l of priced) {
       const p = l.preview?.[side];
       if (p !== undefined && p > 0 && p < 1 && (!best[side] || p < best[side]!.price)) best[side] = { price: p, venue: l.venue };
     }
 
   const spec = chosen[0].spec!;
-  return { key: g.key, asset: assetOf(spec), spec, closeTime: chosen[0].closeTime, listings: chosen, tier, pairs, best };
+  return { key: g.key, asset: assetOf(spec), spec, closeTime: chosen[0].closeTime, listings: chosen, tier, core, badgeTier, pairs, best };
+}
+
+/** Brute force over subsets (a handful of venues at most): the largest all-equivalent set of 2+. */
+function equivalentCore(ls: Listing[], tierOf: Map<string, Tier>): Listing[] {
+  let bestSet: Listing[] = [];
+  for (let mask = 1; mask < 1 << ls.length; mask++) {
+    const set = ls.filter((_, i) => mask & (1 << i));
+    if (set.length < 2 || set.length <= bestSet.length) continue;
+    const ok = set.every((a, i) => set.slice(i + 1).every((b) => tierOf.get(`${id(a)}|${id(b)}`) === "equivalent"));
+    if (ok) bestSet = set;
+  }
+  // Keep the original (venue) order.
+  return ls.filter((l) => bestSet.includes(l));
 }
 
 /** Implied chance of YES from the cheapest YES and NO prices (midpoint), 0-100. */

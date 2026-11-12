@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AssetIcon, VenueDots } from "@/components/MarketCard";
 import { Countdown } from "@/components/Countdown";
 import { VenueLogo } from "@/components/Logos";
+import { LiveTrade } from "@/components/LiveTrade";
 import { OrderFlow } from "@/components/OrderFlow";
 import { useWallet } from "@/components/WalletProvider";
 import type { MarketView } from "@/lib/market-view";
@@ -28,7 +29,11 @@ export function TradePanel({
 }) {
   const copy = marketCopy(market.spec);
   const tier = TIER_COPY[market.tier];
-  const needsConsent = market.tier === "near-equivalent";
+  /** Equivalent venues are quoted by default; near-equivalent extras only after explicit consent. */
+  const hasCore = market.core.length >= 2;
+  const hasExtras = market.tier === "near-equivalent";
+  const needsConsent = hasExtras && !hasCore;
+  const extras = hasCore ? market.listings.filter((l) => !market.core.includes(l)) : [];
   const { accountId, connect } = useWallet();
 
   const [amount, setAmount] = useState("5");
@@ -40,6 +45,10 @@ export function TradePanel({
 
   const budget = Number(amount);
   const canQuote = budget > 0 && budget <= 100_000 && (!needsConsent || accepted);
+  const quoted = useMemo(
+    () => (hasCore && !accepted ? market.core : market.listings).map((l) => ({ venue: l.venue, marketId: l.marketId })),
+    [market, hasCore, accepted],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -63,7 +72,7 @@ export function TradePanel({
           headers: { "Content-Type": "application/json" },
           signal: ctrl.signal,
           body: JSON.stringify({
-            markets: market.listings.map((l) => ({ venue: l.venue, marketId: l.marketId })),
+            markets: quoted,
             side,
             budgetUsd: budget,
             allowNearEquivalent: accepted,
@@ -82,10 +91,10 @@ export function TradePanel({
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [market, side, budget, accepted, canQuote]);
+  }, [quoted, side, budget, accepted, canQuote]);
 
   const reasons = useMemo(() => {
-    const p = market.pairs[0];
+    const p = market.pairs.find((x) => x.tier === "near-equivalent") ?? market.pairs[0];
     return p ? diffLines(p.diffs, p.a, p.b) : [];
   }, [market]);
 
@@ -152,10 +161,14 @@ export function TradePanel({
           </button>
         </div>
 
-        {needsConsent && (
+        {hasExtras && (
           <div className="notice warn">
-            <strong>{tier.label}</strong>
-            <p>{tier.explain}</p>
+            <strong>{hasCore ? `Also include ${extras.map((l) => VENUE[l.venue].name).join(", ")}?` : tier.label}</strong>
+            <p>
+              {hasCore
+                ? `${market.core.map((l) => VENUE[l.venue].name).join(" and ")} pay out the same way and are combined already. ${tier.explain}`
+                : tier.explain}
+            </p>
             <ul>
               {reasons.map((r) => (
                 <li key={r}>{r}</li>
@@ -227,6 +240,8 @@ export function TradePanel({
             <p className="muted small">No venue can fill this order right now.</p>
           )}
         </section>
+
+        <LiveTrade markets={quoted} side={side} budgetUsd={budget} allowNearEquivalent={accepted} plan={shown} />
 
         {executing && shown ? (
           <OrderFlow

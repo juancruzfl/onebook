@@ -40,7 +40,7 @@ function ChanceGauge({ value }: { value: number | null }) {
 
 export function MarketCard({ market, onTrade }: { market: MarketView; onTrade: (m: MarketView, side: Side) => void }) {
   const copy = marketCopy(market.spec);
-  const tier = TIER_COPY[market.tier];
+  const tier = TIER_COPY[market.badgeTier];
   const routable = market.tier !== "related";
   return (
     <article className="mcard">

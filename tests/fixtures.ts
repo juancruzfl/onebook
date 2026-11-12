@@ -2,6 +2,7 @@
 import type { GammaMarket } from "@/lib/extractors/polymarket";
 import type { KalshiMarket } from "@/lib/extractors/kalshi";
 import type { HlOutcome } from "@/lib/extractors/hyperliquid";
+import type { PolymarketUsMarket } from "@/lib/extractors/polymarket-us";
 
 export const polyBtc15m: GammaMarket = {
   conditionId: "0x66b861120d3259755f9b099beb40943607cbcfd41762f02f33b70401ef336b8a",
@@ -52,4 +53,46 @@ export const hlBtcDaily: HlOutcome = {
   outcome: 1,
   name: "BTC daily",
   description: "class:priceBinary|underlying:BTC|expiry:20261112-2200|targetPrice:83249.99|period:1d",
+};
+
+/** Polymarket US gateway /v1/markets, captured 2026-11-12. Same BRTI 60s rule as kalshiBtc15m-style markets. */
+export const pmusBtc15m: PolymarketUsMarket = {
+  "slug": "cpc-btc-updown-15m-2026-11-12-0645z",
+  "question": "BTC Up or Down 15m",
+  "title": "BTC Up or Down 15m",
+  "subtitle": "Nov 12, 1:45AM - 2:00AM",
+  "description": "This market will settle to Up if the Bitcoin price at 2:00AM ET on Nov 12, 2026 is greater than or equal to the price at 1:45AM ET on Nov 12, 2026. Otherwise, this market will settle to Down. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The price at the beginning and at the end of the time range is determined the same way: in the last minute before each of those two times, 60 BRTI prices are collected. The official value for that time is the simple average of these prices, rounded to the nearest 2 decimal places. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+  "endDate": "2026-11-12T07:30:00Z",
+  "active": true,
+  "closed": false,
+  "minimumTradeQty": 0.01,
+  "orderPriceMinTickSize": 0.01,
+  "feeCoefficient": 0.095,
+  "marketSides": [
+    {
+      "description": "Yes",
+      "long": true,
+      "price": "0.3800"
+    },
+    {
+      "description": "No",
+      "long": false,
+      "price": "0.63"
+    }
+  ],
+  "assetPriceTerms": {
+    "marketType": "ASSET_PRICE_MARKET_TYPE_UP_DOWN",
+    "asset": {
+      "assetClass": "ASSET_CLASS_CRYPTO",
+      "symbol": "btc"
+    },
+    "indexSymbol": "BRTI",
+    "horizon": "15m",
+    "windowStart": "2026-11-12T06:45:00Z",
+    "windowEnd": "2026-11-12T07:00:00Z",
+    "priceToBeat": {
+      "value": "73470.27",
+      "currency": "USD"
+    }
+  }
 };
