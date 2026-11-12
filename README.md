@@ -50,6 +50,7 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Component | State |
 |---|---|
 | Venue adapters: Polymarket, Kalshi (live, read-only) | ✅ done |
+| Venue adapter: Polymarket US (CFTC-regulated), 15m BTC/ETH/SOL up/down | ✅ done; matches Kalshi as **equivalent** (same CF Benchmarks 60s rule) |
 | Venue adapter: Hyperliquid HIP-4 (read-only) | ✅ written; not yet verified against the live API |
 | Spec extractors: 15m up/down (BTC/ETH/SOL), Kalshi daily thresholds, HIP-4 `priceBinary` | ✅ done, unit-tested on real responses |
 | Matcher (equivalent / near-equivalent / related) | ✅ done, unit-tested |
@@ -58,9 +59,11 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Chain Signatures: derive the user's EVM address from their NEAR account (`/api/near/address`) | ✅ done, checked against `v1.signer` |
 | Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
 | Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ verified on mainnet: [tx `BoZABTss…gBE2`](https://nearblocks.io/txns/BoZABTssdxRisVA7g9LGwyXAtADBjcvNW9QFFWnYgBE2), 0.00085 NEAR gas |
-| NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ built; live quotes and deposit transactions verified; first mainnet swap pending |
+| NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ verified on mainnet 2026-11-12: 1.4756 NEAR → 5.105282 USDC at the derived address ([deposit tx `2m3tthjx…moQp9`](https://nearblocks.io/txns/2m3tthjx9LD6qGA9ypHqqDbSnnot8NteCdWHs1omoQp9)), order signed via Chain Signatures and recorded as a funded dry run |
+| Withdraw: USDC at your Polygon address → NEAR in your account (gas top-up via Intents, transfer signed via Chain Signatures) (`src/lib/withdraw`) | ✅ verified on mainnet 2026-11-12: 5.105 USDC → 1.4687 NEAR back to the account ([Polygon tx `0xf7bb…899e`](https://polygonscan.com/tx/0xf7bbf842a1f352202980d82d49822512bc934c9a8bacc48ebd872708de90899e)), after a 0.03 NEAR gas top-up |
 | Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
-| Live order submission to venues | 🚫 dry run only (see Compliance) |
+| Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap; first live run pending |
+| Live order submission to Polymarket (international), Hyperliquid | 🚫 dry run only (see Compliance) |
 
 ## Try it
 
@@ -103,6 +106,12 @@ npm test               # unit tests for extractors, matcher, router
       signed, and records the exact payload it would post. It does not post it (see Compliance).
 
    Links to the NEAR Intents Explorer and Polygonscan appear under the tracker.
+7. **Withdraw:** click **Funds** in the nav. It shows the USDC and POL at your Polygon address. Click
+   **Withdraw to NEAR**. The first time, **Add gas** deposits 0.03 NEAR (about $0.10), which NEAR Intents turns
+   into ~1 POL for network fees at your Polygon address. Then **Sign withdrawal**: your NEAR account signs a
+   USDC transfer from your Polygon address to a NEAR Intents deposit address (one `v1.signer.sign` approval),
+   onebook broadcasts it on Polygon, and NEAR Intents swaps it to NEAR and sends it to your account. A failed
+   swap returns the USDC to your Polygon address.
 
 API, if you prefer curl:
 
@@ -121,6 +130,28 @@ Configuration: see `.env.example`.
 `/api/quote` re-fetches the markets and re-checks every pair on the server. It answers `422` for
 related pairs, and for near-equivalent pairs unless `allowNearEquivalent` is `true`.
 
+### Live split orders (Kalshi + Polymarket US, your own accounts)
+
+Both venues are CFTC-regulated and list the same 15-minute up/down markets, settled on the same CF Benchmarks
+60-second average, so onebook routes across them without any opt-in. Each user connects their own accounts:
+
+1. The server operator sets `ONEBOOK_LIVE_ORDERS=on` (see `.env.example`).
+2. The user needs a verified, funded account on [Kalshi](https://kalshi.com) and/or Polymarket US (identity
+   verification in its app) and an API key for each (Kalshi: Account & security → API keys; Polymarket US:
+   polymarket.us/developer).
+3. In the trade panel, **Trade live with your accounts → Connect API key**. The key is imported into the
+   browser as a non-exportable key and checked with a balance read. **It never reaches onebook's server.**
+4. **Review live order** shows the exact orders (venue, contracts, limit price). Tick the confirmation and
+   **Place live orders** (max $10). The browser signs each order. Polymarket US orders go straight from the
+   browser to Polymarket US. Kalshi does not accept signed requests from browsers, so onebook's server
+   relays the browser-signed Kalshi order, and only the order body it planned for that leg.
+5. Each leg is fill-or-kill at its limit price: it fills completely at that price or better, or not at all.
+   Legs are independent, so one can fill while the other is killed. The panel says so; nothing is retried
+   or unwound automatically.
+
+Polymarket US also runs a partner program for software vendors (in-app identity checks, accounts created
+automatically). If onebook joins it, that becomes the default; connecting your own key stays as an option.
+
 ## How NEAR fits
 
 - **NEAR Intents (1Click API):** turns any token the user holds into the collateral each venue settles in,
@@ -133,7 +164,9 @@ related pairs, and for near-equivalent pairs unless `allowNearEquivalent` is `tr
 
 The author is in the US, where Polymarket's international exchange and Hyperliquid are not available for
 opening positions. onebook therefore **reads** public market data from them but does not submit orders
-(dry run). It does not help anyone get around a venue's geographic restrictions: a live deployment must
+(dry run). Live orders go only to CFTC-regulated venues (Kalshi, Polymarket US), from each user's own
+verified account with their own API key, held only in their browser. onebook never holds venue credentials
+or funds. Offering this publicly still needs legal review (e.g. introducing-broker rules, venue API terms). It does not help anyone get around a venue's geographic restrictions: a live deployment must
 enforce each venue's restrictions, as the venues themselves do (for example Polymarket's
 `/api/geoblock` check). This is software, not legal advice.
 
@@ -143,6 +176,7 @@ enforce each venue's restrictions, as the venues themselves do (for example Poly
 src/lib/spec.ts            PayoutSpec types: the venue-independent payout model
 src/lib/extractors/*.ts    rules text → PayoutSpec, one file per venue (pure, tested)
 src/lib/venues/*.ts        venue adapters (listing, order books, fees) + registry
+src/lib/live/*             live orders on regulated venues: browser-held keys, planning, Kalshi relay
 src/lib/matcher.ts         compareSpecs / matchListings → tiers + diffs
 src/lib/router.ts          planRoute: split a budget across fungible books
 src/lib/near/chainsig.ts   Chain Signatures: MPC contract, EVM address derivation (server)
@@ -150,6 +184,8 @@ src/lib/near/mpc.ts        MPC `sign` transaction + signature conversion (browse
 src/lib/near/wrap.ts       NEAR deposit transaction for a 1Click quote (wrap + transfer)
 src/lib/intents/oneclick.ts  NEAR Intents 1Click API client
 src/lib/orders/*           execution queue: state machine, SQLite store, worker (src/instrumentation.ts)
+src/lib/withdraw/*         withdraw: Polygon USDC → NEAR (gas top-up, MPC-signed transfer, 1Click)
+src/lib/chains/polygon.ts  Polygon reads, EIP-1559 transfer building, signature attach + broadcast
 src/lib/polymarket/order.ts  Polymarket CLOB V2 EIP-712 order
 src/components/Wallet*.tsx connect-wallet provider and button
 src/app/api/*              /api/markets, /api/quote
@@ -165,8 +201,8 @@ AGENTS.md                  instructions for AI coding agents working in this rep
   or baseline.
 - Scaffolded with `create-next-app` (Next.js 15, React 19). Tests use Vitest.
 - Code written with AI assistance (Claude Code).
-- Market data: Polymarket Gamma and CLOB public APIs, Kalshi trade-api v2 public endpoints, Hyperliquid
-  `/info`.
+- Market data: Polymarket Gamma and CLOB public APIs, Polymarket US gateway, Kalshi trade-api v2 public
+  endpoints, Hyperliquid `/info`.
 - The author has no other hackathon project.
 
 ## License

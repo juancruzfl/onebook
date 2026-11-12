@@ -929,3 +929,52 @@ code {
   border-top: 1px solid var(--border);
   padding-top: 8px;
 }
+
+/* Live orders (regulated venues, operator's own accounts) */
+.live-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.live-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 4px 28px;
+}
+.connect-form input,
+.connect-form textarea {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  resize: vertical;
+}
+.connect-form textarea {
+  font-family: var(--font-geist-mono, monospace);
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.8rem;
+}

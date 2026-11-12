@@ -6,7 +6,7 @@ import type { OrderRecord, OrderState } from "@/lib/orders/types";
 
 let db: DatabaseSync | null = null;
 
-function open(): DatabaseSync {
+export function openDb(): DatabaseSync {
   if (db) return db;
   const file = process.env.ONEBOOK_DB ?? path.join(process.cwd(), ".data", "onebook.db");
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
@@ -18,7 +18,7 @@ function open(): DatabaseSync {
 }
 
 export function saveOrder(o: OrderRecord): void {
-  open()
+  openDb()
     .prepare(
       `INSERT INTO orders (id, state, account, created_at, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at, data = excluded.data`,
@@ -27,7 +27,7 @@ export function saveOrder(o: OrderRecord): void {
 }
 
 export function getOrder(id: string): OrderRecord | null {
-  const row = open().prepare("SELECT data FROM orders WHERE id = ?").get(id) as { data: string } | undefined;
+  const row = openDb().prepare("SELECT data FROM orders WHERE id = ?").get(id) as { data: string } | undefined;
   return row ? (JSON.parse(row.data) as OrderRecord) : null;
 }
 
@@ -43,7 +43,7 @@ export function listOrders(filter: { states?: OrderState[]; account?: string; li
     args.push(filter.account);
   }
   const sql = `SELECT data FROM orders ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC LIMIT ${Math.min(filter.limit ?? 50, 200)}`;
-  return (open().prepare(sql).all(...args) as { data: string }[]).map((r) => JSON.parse(r.data) as OrderRecord);
+  return (openDb().prepare(sql).all(...args) as { data: string }[]).map((r) => JSON.parse(r.data) as OrderRecord);
 }
 
 /** Test hook. */

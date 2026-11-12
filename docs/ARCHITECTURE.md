@@ -123,6 +123,68 @@ clicks.
   concurrent runs. Transient RPC or 1Click errors are retried on the next tick.
 - It survives restarts because all state is in the table. Hackathon scale: one Node process, no broker.
 
+### Withdraw (`src/lib/withdraw`)
+
+The way back: USDC at the user's Polygon address → NEAR in the user's NEAR account.
+
+```
+POST /api/withdrawals {account}   reads USDC + POL at the derived address
+  NEEDS_GAS            no POL for fees: 1Click quote 0.03 NEAR → POL (recipient = derived address,
+                       refund = NEAR account); the wallet sends the wrap.near deposit (one approval)
+  AWAITING_GAS         worker waits until POL >= gas × maxFeePerGas for a transfer
+  READY_TO_SIGN
+POST /:id/prepare      1Click quote USDC → NEAR (EXACT_INPUT, whole balance, recipient = NEAR account,
+                       refund = derived address) + unsigned EIP-1559 USDC.transfer(depositAddress)
+  AWAITING_SIGNATURE   wallet sends v1.signer.sign(keccak(tx)) (one approval); expires after 10 min
+POST /:id/signed       server attaches r,s,v, checks the signer recovers to the derived address, broadcasts
+                       on Polygon, reports the tx hash to 1Click
+  AWAITING_SWAP        worker: receipt reverted → FAILED; 1Click SUCCESS → DONE; REFUNDED → FAILED
+                       (USDC back at the derived address)
+```
+
+Gas comes from NEAR Intents too, so the user never needs a Polygon wallet. A later improvement is to
+include a little POL in the buy flow so the gas step disappears.
+
+### Live split orders on regulated venues (`src/lib/live`)
+
+A second execution path, for venues where the user trades from their own verified account instead of an
+on-chain address: Kalshi and Polymarket US (both CFTC-regulated, `LIVE_VENUES`). Users connect their own API
+keys; **the secrets never leave the browser**.
+
+```
+connect   browser: import key as a NON-EXTRACTABLE WebCrypto key (Ed25519 / RSA-PSS), store in IndexedDB,
+          check it with a signed balance read
+plan      POST /api/live/plan {markets, side, budgetUsd, requestId}
+          guards: ONEBOOK_LIVE_ORDERS=on, budget <= MAX_LIVE_USD ($10), only LIVE_VENUES, unique requestId
+          computeQuote() re-lists, re-checks fungibility, reads live books → exact order body per leg
+          (Kalshi whole contracts, Polymarket US 0.01), plan valid 30 s
+send      Polymarket US: POST /api/live/:id/claim (once, while fresh) → browser signs and posts the planned
+                         body to api.polymarket.us (CORS allows it) → POST /api/live/:id/report
+          Kalshi:        browser signs `ts + POST + /trade-api/v2/portfolio/events/orders` → POST
+                         /api/live/:id/kalshi {leg, keyId, ts, signature} → server forwards ONLY the planned
+                         body for that leg, once, while fresh (Kalshi rejects auth headers from browsers)
+result    per leg filled / not-filled / error; outcome all-filled | partial | none-filled
+          (live_executions table, same SQLite file as the order queue; GET /api/live/:id)
+```
+
+Neither venue's signature covers the request body. That is why the relay never accepts a body from the
+client: it sends the body it planned for that leg. A signature is only valid for one timestamp and path.
+
+Atomicity: each leg is all-or-nothing at its limit price, but legs are not atomic with each other. A partial
+route (one venue filled, one killed because its book moved) is reported, not retried or unwound. With a $10
+cap the worst case is a smaller position than planned at a price no worse than quoted.
+
+Production path: Polymarket US's ISV partner program (firm-level auth, in-app KYC, accounts provisioned on
+approval). Bring-your-own-key stays as an option alongside it.
+
+How NEAR fits here: regulated venues hold funds in the user's own account (deposits must come from accounts
+in the user's name), so positions are not at a Chain Signatures address and 1Click cannot fund them directly.
+NEAR stays the settlement layer for on-chain venues.
+
+TODO(verify): Polymarket US BUY_SHORT price convention in a live order (docs say prices always refer to YES);
+the `/v1/account/balances` response shape; Kalshi fractional counts on 15m markets (we send whole contracts);
+WebCrypto Ed25519 support in the user's browser (recent Chrome, Firefox, Safari).
+
 ### Gaps before live trading
 
 - pUSD: Polymarket V2 settles in pUSD; 1Click delivers USDC. A USDC → pUSD wrap transaction (signed via
@@ -184,10 +246,18 @@ markets on Solana.
 
 ## Known gaps
 
-- Fees: Kalshi's published formula is modelled without per-order rounding. Polymarket and Hyperliquid
-  fees are treated as 0 (TODO verify).
+- Fees: Kalshi's published formula is modelled without per-order rounding. Polymarket US uses
+  0.095 × C × p × (1 − p) (tier 1; banker's rounding ignored). Polymarket (international) and Hyperliquid
+  fees are treated as 0, but a third-party comparison lists 0.07 × C × p × (1 − p) for Polymarket
+  international 15m markets (TODO verify).
 - The Hyperliquid adapter is written against third-party docs. The live endpoint was unreachable from
   the dev machine when it was written.
 - Polymarket's 2026 TWAP wording does not say where the 60s window sits. It is modelled as
   `anchor: "unspecified"`, which keeps BTC pairs at near-equivalent even if the oracles were the same.
 - Market previews in the UI come from listing endpoints. Only `/api/quote` reads live books.
+- Polymarket US public books are served through a CDN cache (`cache-control: max-age=30`), so a quote can
+  use a book up to 30 s old. Live legs are fill-or-kill, so a stale price fails safely (not filled) rather
+  than overpaying. Fix later with the markets WebSocket (`/v1/ws/markets`).
+- Kalshi pauses trading Thursdays 3-5 AM ET (`/exchange/status` → `trading_active: false`); its 15m
+  markets disappear from the open list then, and cards show the other venues only.
+- Venue requests send `User-Agent: onebook-router/0.1`. Polymarket US's CDN throttles Node's default agent.

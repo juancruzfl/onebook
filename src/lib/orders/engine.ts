@@ -8,9 +8,9 @@
  *  - The venue order is never posted: ORDER_DRY_RUN is final (US geo restriction, see README → Compliance).
  */
 import { randomUUID } from "node:crypto";
-import { createPublicClient, erc20Abi, http, isAddressEqual, recoverTypedDataAddress, type Address } from "viem";
-import { polygon } from "viem/chains";
-import { ASSETS, getStatus, requestQuote, submitDeposit, tokenPriceUsd, USDC_POLYGON_ADDRESS, type QuoteResponse, type StatusResponse } from "@/lib/intents/oneclick";
+import { isAddressEqual, recoverTypedDataAddress, type Address } from "viem";
+import { usdcBalance } from "@/lib/chains/polygon";
+import { ASSETS, getStatus, requestQuote, submitDeposit, tokenPriceUsd, type QuoteResponse, type StatusResponse } from "@/lib/intents/oneclick";
 import { deriveEvmAddress } from "@/lib/near/chainsig";
 import { mpcResultToEvmSignature, mpcSignTx } from "@/lib/near/mpc";
 import { wrapAndDepositTx } from "@/lib/near/wrap";
@@ -41,8 +41,6 @@ export interface EngineDeps {
   now: () => Date;
 }
 
-const polygonClient = () => createPublicClient({ chain: polygon, transport: http(process.env.POLYGON_RPC_URL) });
-
 export const defaultDeps: EngineDeps = {
   computeQuote,
   deriveEvmAddress: (a) => deriveEvmAddress(a, "mainnet"),
@@ -50,8 +48,7 @@ export const defaultDeps: EngineDeps = {
   requestQuote,
   getStatus,
   submitDeposit,
-  usdcBalance: (address) =>
-    polygonClient().readContract({ address: USDC_POLYGON_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [address] }),
+  usdcBalance,
   now: () => new Date(),
 };
 

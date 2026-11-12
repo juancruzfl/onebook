@@ -1,10 +1,11 @@
 import { hyperliquid } from "@/lib/venues/hyperliquid";
 import { kalshi } from "@/lib/venues/kalshi";
 import { polymarket } from "@/lib/venues/polymarket";
+import { polymarketUs } from "@/lib/venues/polymarket-us";
 import type { Listing, VenueAdapter, VenueId } from "@/lib/venues/types";
 
 /** Registry. To add a venue: implement VenueAdapter and add it here. Nothing else changes. */
-export const VENUES: Record<VenueId, VenueAdapter> = { polymarket, kalshi, hyperliquid };
+export const VENUES: Record<VenueId, VenueAdapter> = { polymarket, "polymarket-us": polymarketUs, kalshi, hyperliquid };
 
 export interface VenueStatus {
   venue: VenueId;

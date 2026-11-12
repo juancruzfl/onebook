@@ -48,17 +48,23 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
    edge-case rules) is a `warning`.
 4. **No custody.** Designs must keep user funds at addresses controlled by the user's NEAR account
    (Chain Signatures). Do not add a pooled or router-held wallet.
-5. **No live orders and no geo-circumvention.** Order submission stays a dry run (`ORDER_DRY_RUN` is
-   final). Never add proxies, region-hopping hosting or anything else that gets around a venue's
-   geographic restrictions.
+5. **Live orders only on regulated venues, only from the user's own accounts, and no
+   geo-circumvention.** Polymarket (international) and Hyperliquid stay dry-run (`ORDER_DRY_RUN` is
+   final). Live orders (`src/lib/live`) go only to `LIVE_VENUES` (Kalshi, Polymarket US: CFTC-regulated),
+   from each user's own account with the user's own API keys, behind `ONEBOOK_LIVE_ORDERS=on`,
+   `MAX_LIVE_USD` and an explicit review + confirm. **Venue secrets never leave the user's browser**
+   (non-extractable WebCrypto keys); the server must never receive, log or store them, and only relays
+   bodies it planned itself. Never add a venue to `LIVE_VENUES` without the human's approval, and never
+   add proxies, region-hopping hosting or anything else that gets around a venue's geographic restrictions.
 6. **Execution order of operations:** the venue order is signed and verified (`AWAITING_SIGNATURE` →
    `AWAITING_DEPOSIT_TX`) before the deposit transaction is ever offered. Every wallet prompt is a
    separate user click. Keep `MAX_ORDER_USD` (server) and `MAX_EXEC_USD` (UI) in sync, and never raise
    the default without the human's approval.
 7. **Secrets** live in environment variables (`.env.local`, git-ignored). Never commit keys, API
    credentials, seed phrases or submission payloads.
-8. **Never without the human's explicit confirmation:** sign NEAR transactions, spend tokens, deploy to
-   mainnet, push, make the repo public, post on social media, or submit the hackathon application.
+8. **Never without the human's explicit confirmation:** sign NEAR transactions, spend tokens, place a
+   live venue order, deploy to mainnet, push, make the repo public, post on social media, or submit the
+   hackathon application.
 9. Mark unverified external facts (contract addresses, fee formulas, API shapes taken from third-party
    docs) with `TODO(verify)` and say so in `docs/ARCHITECTURE.md` → Known gaps.
 
@@ -80,5 +86,9 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
 - Kalshi: `GET https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXBTC15M&status=open`.
   Book: `/markets/{ticker}/orderbook` returns `orderbook_fp.{yes_dollars,no_dollars}`, which are
   **bids** only. A YES ask is `1 - NO bid`.
+- Polymarket US (verified 2026-11-12): public data at `https://gateway.polymarket.us/v1` (`/markets?categories=crypto`,
+  `/markets/{slug}/book`), no key. Crypto markets carry `assetPriceTerms` (index, window). One YES instrument
+  per market: NO asks are `1 - bids`; buying NO is `ORDER_INTENT_BUY_SHORT` at the YES price. Trading at
+  `https://api.polymarket.us/v1/orders`, Ed25519-signed `X-PM-*` headers. 25 req/s per IP; back off on 429.
 - Hyperliquid: `POST https://api.hyperliquid.xyz/info` with `{"type":"outcomeMeta"}` or
   `{"type":"l2Book","coin":"#<10*outcome+side>"}`. Not yet verified live.

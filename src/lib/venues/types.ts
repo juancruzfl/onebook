@@ -1,6 +1,6 @@
 import type { PayoutSpec } from "@/lib/spec";
 
-export type VenueId = "polymarket" | "kalshi" | "hyperliquid";
+export type VenueId = "polymarket" | "polymarket-us" | "kalshi" | "hyperliquid";
 
 export type Side = "yes" | "no";
 

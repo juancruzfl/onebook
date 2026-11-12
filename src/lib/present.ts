@@ -16,6 +16,7 @@ export const assetInfo = (a: string) => ASSET[a] ?? { name: a, symbol: a.slice(0
 /** `color` is the venue's accent (route bar); `tile` is the background behind its logo. */
 export const VENUE: Record<VenueId, { name: string; short: string; color: string; tile: string; logo: string }> = {
   polymarket: { name: "Polymarket", short: "PM", color: "#1652f0", tile: "#1652f0", logo: "/logos/polymarket.png" },
+  "polymarket-us": { name: "Polymarket US", short: "PMUS", color: "#0b3fc4", tile: "#1652f0", logo: "/logos/polymarket.png" },
   kalshi: { name: "Kalshi", short: "K", color: "#00d991", tile: "#0b1210", logo: "/logos/kalshi.png" },
   hyperliquid: { name: "Hyperliquid", short: "HL", color: "#97fce4", tile: "#0f1a1f", logo: "/logos/hyperliquid.png" },
 };
