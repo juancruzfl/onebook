@@ -54,11 +54,11 @@ export function MarketCard({ market, onTrade }: { market: MarketView; onTrade: (
       </header>
 
       <div className="mcard-actions">
-        <button className="outcome yes" disabled={!routable} onClick={() => onTrade(market, "yes")}>
+        <button className="outcome yes" disabled={!routable || !market.best.yes} onClick={() => onTrade(market, "yes")}>
           <span>{copy.yes}</span>
           <span className="outcome-price">{fmtCents(market.best.yes?.price)}</span>
         </button>
-        <button className="outcome no" disabled={!routable} onClick={() => onTrade(market, "no")}>
+        <button className="outcome no" disabled={!routable || !market.best.no} onClick={() => onTrade(market, "no")}>
           <span>{copy.no}</span>
           <span className="outcome-price">{fmtCents(market.best.no?.price)}</span>
         </button>

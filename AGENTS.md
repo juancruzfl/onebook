@@ -48,13 +48,18 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
    edge-case rules) is a `warning`.
 4. **No custody.** Designs must keep user funds at addresses controlled by the user's NEAR account
    (Chain Signatures). Do not add a pooled or router-held wallet.
-5. **No live orders and no geo-circumvention.** Order submission stays a dry run. Never add proxies,
-   region-hopping hosting or anything else that gets around a venue's geographic restrictions.
-6. **Secrets** live in environment variables (`.env.local`, git-ignored). Never commit keys, API
+5. **No live orders and no geo-circumvention.** Order submission stays a dry run (`ORDER_DRY_RUN` is
+   final). Never add proxies, region-hopping hosting or anything else that gets around a venue's
+   geographic restrictions.
+6. **Execution order of operations:** the venue order is signed and verified (`AWAITING_SIGNATURE` →
+   `AWAITING_DEPOSIT_TX`) before the deposit transaction is ever offered. Every wallet prompt is a
+   separate user click. Keep `MAX_ORDER_USD` (server) and `MAX_EXEC_USD` (UI) in sync, and never raise
+   the default without the human's approval.
+7. **Secrets** live in environment variables (`.env.local`, git-ignored). Never commit keys, API
    credentials, seed phrases or submission payloads.
-7. **Never without the human's explicit confirmation:** sign NEAR transactions, spend tokens, deploy to
+8. **Never without the human's explicit confirmation:** sign NEAR transactions, spend tokens, deploy to
    mainnet, push, make the repo public, post on social media, or submit the hackathon application.
-8. Mark unverified external facts (contract addresses, fee formulas, API shapes taken from third-party
+9. Mark unverified external facts (contract addresses, fee formulas, API shapes taken from third-party
    docs) with `TODO(verify)` and say so in `docs/ARCHITECTURE.md` → Known gaps.
 
 ## Conventions

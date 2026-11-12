@@ -865,3 +865,67 @@ code {
   font-size: 0.78rem;
   color: var(--muted);
 }
+
+/* ---------- Order flow ---------- */
+
+.order-flow {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.flow-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+.flow-steps li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+}
+.flow-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  flex: none;
+}
+.flow-steps li.done {
+  color: var(--fg);
+}
+.flow-steps li.done .flow-dot {
+  background: var(--yes);
+  border-color: var(--yes);
+}
+.flow-steps li.active {
+  color: var(--fg);
+  font-weight: 600;
+}
+.flow-steps li.active .flow-dot {
+  border-color: var(--accent);
+  animation: pulse 1s infinite alternate;
+}
+.flow-steps li.fail .flow-dot {
+  background: var(--no);
+  border-color: var(--no);
+}
+@keyframes pulse {
+  to {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+}
+.flow-log {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}

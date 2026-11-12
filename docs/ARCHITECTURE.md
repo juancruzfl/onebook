@@ -76,39 +76,60 @@ The limit price for each venue becomes the worst acceptable price in the signed 
 `/api/quote` never trusts the client. It re-lists markets, re-extracts and re-compares every pair, and
 only then fetches the books.
 
-## Execution (planned)
+## Execution (built; venue submission is a dry run)
 
 ### Custody model
 
 The user's NEAR account owns every position. On each venue's chain the position sits at an address
 derived with Chain Signatures from `(NEAR account, path)`. onebook never has custody of funds.
 
-### Flow (Polymarket shown; other EVM venues are the same)
+### Flow as built (`src/lib/orders/engine.ts`)
+
+Execution routes the whole amount to Polymarket, the only venue whose orders onebook can sign today. The
+multi-venue split stays a quote.
 
 ```
-1. QUOTED            router plan with limit prices and expiry
-2. USER SIGNS        a) deposit to the 1Click deposit address (NEAR wallet tx)
-                     b) the venue order (EIP-712) via the MPC signer: maker = derived address,
-                        price ≤ limit, expiry = quote deadline. Signed BEFORE money moves.
-3. AWAITING_DEPOSIT  queue polls the 1Click status endpoint
-   ├─ refunded  → SWAP_FAILED (1Click returns funds to the refund address)
-   └─ success   → SWAP_SETTLED (collateral is at the user's derived address)
-4. ORDER_SUBMITTED   queue posts the pre-signed order (fill-or-kill at the limit)
-   ├─ filled    → FILLED
-   └─ not filled→ retry until expiry → EXPIRED (collateral stays at the user's own address)
+POST /api/orders           route → 1Click quote (wNEAR → USDC on Polygon, recipient = derived address,
+                           refund = user's NEAR account) → V2 order sized from the quote's minAmountOut
+                           at the live limit price
+  AWAITING_SIGNATURE       wallet sends v1.signer.sign(order hash). NO FUNDS MOVE.
+POST /:id/signed           server recovers the signer from the MPC result; it must equal the derived address
+  AWAITING_DEPOSIT_TX      separate click: wallet sends wrap.near [storage_deposit, near_deposit, ft_transfer]
+POST /:id/deposited        tx hash forwarded to 1Click /deposit/submit
+  AWAITING_SWAP            worker polls 1Click /status
+    ├─ SUCCESS             → SWAP_SETTLED (USDC is at the user's derived address)
+    └─ REFUNDED/FAILED/    → SWAP_FAILED (1Click returns the NEAR to the user's account)
+       INCOMPLETE_DEPOSIT
+  SWAP_SETTLED             worker reads USDC.balanceOf(derived address) on Polygon and records the exact
+                           CLOB payload (order + signature, FOK)
+  ORDER_DRY_RUN            final. Not posted: geo restriction (README → Compliance).
+  EXPIRED                  unfunded past expiresAt = min(created + 20 min, market close − 60 s)
 ```
 
-Why this handles atomicity: the swap leg refunds itself if it fails, and the order leg can only fill at
-or below the price the user signed. In the worst case the user holds collateral at an address they
-control. There is no state in which onebook holds user funds.
+Why this handles atomicity: the order is signed before any money moves, the swap leg refunds itself if
+it fails, and the order can only fill at or below the price the user signed. In the worst case the user
+holds USDC at an address they control. There is no state in which onebook holds user funds.
+
+Safety limits: `MAX_ORDER_USD` (default $10) per order, Polymarket's 5-share minimum, shares rounded
+down so the order never spends more than the swap guarantees. Wallet prompts are separate, explicit
+clicks.
 
 ### Queue
 
-- An `orders` table with one row per routed order: state, 1Click deposit address, the pre-signed order,
-  expiry, retry count, timestamps.
-- A worker loop runs every few seconds, picks up rows not yet in a final state, and does the next step.
-  It survives restarts because all state is in the table.
-- Hackathon scale: SQLite plus a single Node worker. No message broker.
+- `orders` table in SQLite (`node:sqlite`, `.data/onebook.db`, git-ignored): one row per order with the
+  full record as JSON (state, quote, signed order, event log).
+- Worker: `src/instrumentation.ts` starts a 5-second `tickAll()` when the Next.js server boots.
+  `GET /api/orders/:id` also advances the order one step. `advance()` is idempotent and guarded against
+  concurrent runs. Transient RPC or 1Click errors are retried on the next tick.
+- It survives restarts because all state is in the table. Hackathon scale: one Node process, no broker.
+
+### Gaps before live trading
+
+- pUSD: Polymarket V2 settles in pUSD; 1Click delivers USDC. A USDC → pUSD wrap transaction (signed via
+  Chain Signatures) is needed, plus the exchange approvals and a little POL for gas (1Click can deliver
+  POL too).
+- CLOB API credentials for each derived address (L1 auth message signed via MPC).
+- A venue the operator may legally route to (Kalshi via DFlow, Polymarket US).
 
 ### One-time setup per derived address (Polymarket)
 

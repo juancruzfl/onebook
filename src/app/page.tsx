@@ -54,7 +54,8 @@ export default function Home() {
   const markets = useMemo(() => {
     const views = (data?.groups ?? []).map(toMarketView).filter((m): m is MarketView => m !== null);
     return views
-      .filter((m) => new Date(m.closeTime).getTime() > Date.now())
+      // Hide markets in their final minute: books empty out and quotes go stale.
+      .filter((m) => new Date(m.closeTime).getTime() - Date.now() > 60_000)
       .filter((m) => showAll || m.tier !== "related")
       .filter((m) => tab === "all" || m.asset === tab)
       .filter((m) => {

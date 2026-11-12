@@ -30,8 +30,9 @@ function parseOutcome(outcome: unknown): { result: unknown; txHash?: string } {
   const o = outcome as { status?: { SuccessValue?: string; Failure?: unknown }; transaction?: { hash?: string } };
   if (o?.status && "Failure" in o.status && o.status.Failure) throw new Error(`transaction failed: ${JSON.stringify(o.status.Failure)}`);
   const b64 = o?.status?.SuccessValue;
-  if (!b64) throw new Error("transaction returned no value");
-  return { result: JSON.parse(atob(b64)), txHash: o.transaction?.hash };
+  if (b64 === undefined) throw new Error("transaction did not succeed");
+  // Some calls (e.g. ft_transfer) succeed with an empty return value.
+  return { result: b64 === "" ? null : JSON.parse(atob(b64)), txHash: o.transaction?.hash };
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
