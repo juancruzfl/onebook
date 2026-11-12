@@ -75,14 +75,6 @@ export default function Home() {
       </nav>
 
       <main className="wrap">
-        <section className="hero">
-          <h1>One order. Every prediction market.</h1>
-          <p className="muted">
-            onebook finds the same bet on Polymarket, Kalshi and Hyperliquid and fills your order at the best combined
-            price. It only combines markets that pay out the same way.
-          </p>
-        </section>
-
         <div className="toolbar">
           <div className="tabs" role="tablist">
             {TABS.map((t) => (
