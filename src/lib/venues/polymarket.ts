@@ -41,7 +41,11 @@ async function listUpDown(): Promise<Listing[]> {
       const legs = polymarketLegs(m);
       if (!legs) continue;
       const ex = extractPolymarketUpDown(m, s.asset);
-      const prices = m.outcomePrices ? (JSON.parse(m.outcomePrices) as string[]).map(Number) : undefined;
+      // Gamma's bestAsk/bestBid are for the first outcome. Buying the other outcome costs 1 - bestBid.
+      const outcomes = JSON.parse(m.outcomes) as string[];
+      const upFirst = /^up$/i.test(outcomes[0] ?? "");
+      const askFirst = m.bestAsk;
+      const askSecond = m.bestBid !== undefined && m.bestBid > 0 ? r4(1 - m.bestBid) : undefined;
       listings.push({
         venue: "polymarket",
         marketId: m.conditionId,
@@ -50,8 +54,8 @@ async function listUpDown(): Promise<Listing[]> {
         spec: ex.ok ? ex.spec : null,
         extractError: ex.ok ? undefined : ex.error,
         legs,
-        // outcomePrices are mid/last prices, used only as a preview; real quotes come from the book.
-        preview: prices ? { yes: prices[0], no: prices[1] } : undefined,
+        // Indicative top-of-book asks for display; quotes always read the full book.
+        preview: upFirst ? { yes: askFirst, no: askSecond } : { yes: askSecond, no: askFirst },
         minOrder: { shares: m.orderMinSize ?? 5 },
         closeTime: isoUtc(m.endDate),
         rulesText: m.description,

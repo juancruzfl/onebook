@@ -12,7 +12,9 @@ export interface GammaMarket {
   eventStartTime?: string;
   endDate: string;
   orderMinSize?: number;
+  /** Best ask / bid of the FIRST outcome's token (e.g. "Up"). */
   bestAsk?: number;
+  bestBid?: number;
   outcomePrices?: string;
   acceptingOrders?: boolean;
 }
