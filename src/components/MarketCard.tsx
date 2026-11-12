@@ -1,26 +1,18 @@
 "use client";
 
 import { Countdown } from "@/components/Countdown";
+import { AssetIcon, VenueLogo } from "@/components/Logos";
 import { chance, type MarketView } from "@/lib/market-view";
-import { assetInfo, fmtCents, marketCopy, TIER_COPY, VENUE } from "@/lib/present";
+import { fmtCents, marketCopy, TIER_COPY } from "@/lib/present";
 import type { Side } from "@/lib/venues/types";
 
-export function AssetIcon({ asset, size = 40 }: { asset: string; size?: number }) {
-  const a = assetInfo(asset);
-  return (
-    <span className="asset-icon" style={{ background: a.color, width: size, height: size, fontSize: size * 0.5 }} aria-hidden>
-      {a.symbol}
-    </span>
-  );
-}
+export { AssetIcon };
 
 export function VenueDots({ venues }: { venues: MarketView["listings"] }) {
   return (
     <span className="venue-dots">
       {venues.map((l) => (
-        <span key={l.venue} className="venue-dot" style={{ background: VENUE[l.venue].color }} title={VENUE[l.venue].name}>
-          {VENUE[l.venue].short}
-        </span>
+        <VenueLogo key={l.venue} venue={l.venue} />
       ))}
     </span>
   );

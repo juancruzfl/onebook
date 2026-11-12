@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AssetIcon, VenueDots } from "@/components/MarketCard";
 import { Countdown } from "@/components/Countdown";
+import { VenueLogo } from "@/components/Logos";
 import { useWallet } from "@/components/WalletProvider";
 import type { MarketView } from "@/lib/market-view";
 import { diffLines, fmtCents, fmtUsd, marketCopy, TIER_COPY, VENUE } from "@/lib/present";
@@ -195,9 +196,7 @@ export function TradePanel({
                 </div>
                 {shown.allocations.map((a) => (
                   <div key={a.venue} className="route-row">
-                    <span className="venue-dot" style={{ background: VENUE[a.venue].color }}>
-                      {VENUE[a.venue].short}
-                    </span>
+                    <VenueLogo venue={a.venue} />
                     <span>{VENUE[a.venue].name}</span>
                     <span className="muted">
                       {fmtUsd(a.cost)} · {a.shares.toFixed(2)} @ {fmtCents(a.avgPrice)}

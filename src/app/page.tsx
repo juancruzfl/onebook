@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Logo } from "@/components/Logo";
+import { VenueLogo } from "@/components/Logos";
 import { MarketCard } from "@/components/MarketCard";
 import { TradePanel } from "@/components/TradePanel";
 import { WalletButton } from "@/components/WalletButton";
@@ -137,6 +138,7 @@ export default function Home() {
             {data.status.map((s) => (
               <span key={s.venue} className={`status ${s.ok ? "ok" : "down"}`} title={s.error}>
                 <span className="status-dot" />
+                <VenueLogo venue={s.venue} size={16} />
                 {VENUE[s.venue].name}
               </span>
             ))}

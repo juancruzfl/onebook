@@ -5,17 +5,19 @@ import type { Diff, Tier } from "@/lib/matcher";
 import type { PayoutSpec } from "@/lib/spec";
 import type { Listing, VenueId } from "@/lib/venues/types";
 
-export const ASSET: Record<string, { name: string; symbol: string; color: string }> = {
-  BTC: { name: "Bitcoin", symbol: "₿", color: "#f7931a" },
-  ETH: { name: "Ethereum", symbol: "Ξ", color: "#627eea" },
-  SOL: { name: "Solana", symbol: "◎", color: "#14b8a6" },
+/** Logos live in /public/logos (see SOURCES.md there). */
+export const ASSET: Record<string, { name: string; symbol: string; color: string; logo?: string }> = {
+  BTC: { name: "Bitcoin", symbol: "₿", color: "#f7931a", logo: "/logos/btc.svg" },
+  ETH: { name: "Ethereum", symbol: "Ξ", color: "#627eea", logo: "/logos/eth.svg" },
+  SOL: { name: "Solana", symbol: "◎", color: "#14b8a6", logo: "/logos/sol.svg" },
 };
 export const assetInfo = (a: string) => ASSET[a] ?? { name: a, symbol: a.slice(0, 1), color: "#888" };
 
-export const VENUE: Record<VenueId, { name: string; short: string; color: string }> = {
-  polymarket: { name: "Polymarket", short: "PM", color: "#2e5cff" },
-  kalshi: { name: "Kalshi", short: "K", color: "#00b386" },
-  hyperliquid: { name: "Hyperliquid", short: "HL", color: "#7ee2c8" },
+/** `color` is the venue's accent (route bar); `tile` is the background behind its logo. */
+export const VENUE: Record<VenueId, { name: string; short: string; color: string; tile: string; logo: string }> = {
+  polymarket: { name: "Polymarket", short: "PM", color: "#1652f0", tile: "#1652f0", logo: "/logos/polymarket.png" },
+  kalshi: { name: "Kalshi", short: "K", color: "#00d991", tile: "#0b1210", logo: "/logos/kalshi.png" },
+  hyperliquid: { name: "Hyperliquid", short: "HL", color: "#97fce4", tile: "#0f1a1f", logo: "/logos/hyperliquid.png" },
 };
 
 const ORACLE: Record<string, string> = {
