@@ -63,7 +63,7 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Trading balance: add funds ahead of time (NEAR → USDC + POL gas at your Polygon address, one approval, `src/lib/funding`); trades paid from it are sign-and-done (~1 s to prepare, one signature) | ✅ built, unit-tested; balance-paid order verified live up to signing |
 | Withdraw: USDC at your Polygon address → NEAR in your account (gas top-up via Intents, transfer signed via Chain Signatures) (`src/lib/withdraw`) | ✅ verified on mainnet 2026-11-12: 5.105 USDC → 1.4687 NEAR back to the account ([Polygon tx `0xf7bb…899e`](https://polygonscan.com/tx/0xf7bbf842a1f352202980d82d49822512bc934c9a8bacc48ebd872708de90899e)), after a 0.03 NEAR gas top-up |
 | Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
-| Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap; first live run pending |
+| Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ first live fill 2026-11-12: Polymarket US, 5.73 Down @ ≤ 86¢ (BTC 4:15-4:30 AM ET), fill-or-kill, signed in the browser; Kalshi leg pending (weekly pause); off by default, $10 cap |
 | Live order submission to Polymarket (international), Hyperliquid | 🚫 dry run only (see Compliance) |
 
 ## Try it
