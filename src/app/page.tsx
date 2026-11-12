@@ -5,6 +5,7 @@ import { Logo } from "@/components/Logo";
 import { VenueLogo } from "@/components/Logos";
 import { MarketCard } from "@/components/MarketCard";
 import { TradePanel } from "@/components/TradePanel";
+import { Funds } from "@/components/Funds";
 import { WalletButton } from "@/components/WalletButton";
 import { toMarketView, type GroupDto, type MarketView } from "@/lib/market-view";
 import { marketCopy, VENUE } from "@/lib/present";
@@ -87,6 +88,7 @@ export default function Home() {
               aria-label="Search markets"
             />
           </label>
+          <Funds />
           <WalletButton />
         </div>
         <div className="nav-inner nav-tabs">

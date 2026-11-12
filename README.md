@@ -60,6 +60,7 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
 | Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ verified on mainnet: [tx `BoZABTss…gBE2`](https://nearblocks.io/txns/BoZABTssdxRisVA7g9LGwyXAtADBjcvNW9QFFWnYgBE2), 0.00085 NEAR gas |
 | NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ verified on mainnet 2026-11-12: 1.4756 NEAR → 5.105282 USDC at the derived address ([deposit tx `2m3tthjx…moQp9`](https://nearblocks.io/txns/2m3tthjx9LD6qGA9ypHqqDbSnnot8NteCdWHs1omoQp9)), order signed via Chain Signatures and recorded as a funded dry run |
+| Withdraw: USDC at your Polygon address → NEAR in your account (gas top-up via Intents, transfer signed via Chain Signatures) (`src/lib/withdraw`) | ✅ built, unit-tested; first mainnet run pending |
 | Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
 | Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap; first live run pending |
 | Live order submission to Polymarket (international), Hyperliquid | 🚫 dry run only (see Compliance) |
@@ -105,6 +106,12 @@ npm test               # unit tests for extractors, matcher, router
       signed, and records the exact payload it would post. It does not post it (see Compliance).
 
    Links to the NEAR Intents Explorer and Polygonscan appear under the tracker.
+7. **Withdraw:** click **Funds** in the nav. It shows the USDC and POL at your Polygon address. Click
+   **Withdraw to NEAR**. The first time, **Add gas** deposits 0.03 NEAR (about $0.10), which NEAR Intents turns
+   into ~1 POL for network fees at your Polygon address. Then **Sign withdrawal**: your NEAR account signs a
+   USDC transfer from your Polygon address to a NEAR Intents deposit address (one `v1.signer.sign` approval),
+   onebook broadcasts it on Polygon, and NEAR Intents swaps it to NEAR and sends it to your account. A failed
+   swap returns the USDC to your Polygon address.
 
 API, if you prefer curl:
 
@@ -177,6 +184,8 @@ src/lib/near/mpc.ts        MPC `sign` transaction + signature conversion (browse
 src/lib/near/wrap.ts       NEAR deposit transaction for a 1Click quote (wrap + transfer)
 src/lib/intents/oneclick.ts  NEAR Intents 1Click API client
 src/lib/orders/*           execution queue: state machine, SQLite store, worker (src/instrumentation.ts)
+src/lib/withdraw/*         withdraw: Polygon USDC → NEAR (gas top-up, MPC-signed transfer, 1Click)
+src/lib/chains/polygon.ts  Polygon reads, EIP-1559 transfer building, signature attach + broadcast
 src/lib/polymarket/order.ts  Polymarket CLOB V2 EIP-712 order
 src/components/Wallet*.tsx connect-wallet provider and button
 src/app/api/*              /api/markets, /api/quote

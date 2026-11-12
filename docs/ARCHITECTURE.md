@@ -123,6 +123,28 @@ clicks.
   concurrent runs. Transient RPC or 1Click errors are retried on the next tick.
 - It survives restarts because all state is in the table. Hackathon scale: one Node process, no broker.
 
+### Withdraw (`src/lib/withdraw`)
+
+The way back: USDC at the user's Polygon address → NEAR in the user's NEAR account.
+
+```
+POST /api/withdrawals {account}   reads USDC + POL at the derived address
+  NEEDS_GAS            no POL for fees: 1Click quote 0.03 NEAR → POL (recipient = derived address,
+                       refund = NEAR account); the wallet sends the wrap.near deposit (one approval)
+  AWAITING_GAS         worker waits until POL >= gas × maxFeePerGas for a transfer
+  READY_TO_SIGN
+POST /:id/prepare      1Click quote USDC → NEAR (EXACT_INPUT, whole balance, recipient = NEAR account,
+                       refund = derived address) + unsigned EIP-1559 USDC.transfer(depositAddress)
+  AWAITING_SIGNATURE   wallet sends v1.signer.sign(keccak(tx)) (one approval); expires after 10 min
+POST /:id/signed       server attaches r,s,v, checks the signer recovers to the derived address, broadcasts
+                       on Polygon, reports the tx hash to 1Click
+  AWAITING_SWAP        worker: receipt reverted → FAILED; 1Click SUCCESS → DONE; REFUNDED → FAILED
+                       (USDC back at the derived address)
+```
+
+Gas comes from NEAR Intents too, so the user never needs a Polygon wallet. A later improvement is to
+include a little POL in the buy flow so the gas step disappears.
+
 ### Live split orders on regulated venues (`src/lib/live`)
 
 A second execution path, for venues where the user trades from their own verified account instead of an

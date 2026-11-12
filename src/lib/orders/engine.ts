@@ -8,9 +8,9 @@
  *  - The venue order is never posted: ORDER_DRY_RUN is final (US geo restriction, see README → Compliance).
  */
 import { randomUUID } from "node:crypto";
-import { createPublicClient, erc20Abi, fallback, http, isAddressEqual, recoverTypedDataAddress, type Address } from "viem";
-import { polygon } from "viem/chains";
-import { ASSETS, getStatus, requestQuote, submitDeposit, tokenPriceUsd, USDC_POLYGON_ADDRESS, type QuoteResponse, type StatusResponse } from "@/lib/intents/oneclick";
+import { isAddressEqual, recoverTypedDataAddress, type Address } from "viem";
+import { usdcBalance } from "@/lib/chains/polygon";
+import { ASSETS, getStatus, requestQuote, submitDeposit, tokenPriceUsd, type QuoteResponse, type StatusResponse } from "@/lib/intents/oneclick";
 import { deriveEvmAddress } from "@/lib/near/chainsig";
 import { mpcResultToEvmSignature, mpcSignTx } from "@/lib/near/mpc";
 import { wrapAndDepositTx } from "@/lib/near/wrap";
@@ -41,17 +41,6 @@ export interface EngineDeps {
   now: () => Date;
 }
 
-/**
- * Public Polygon RPCs, tried in order (viem's default, polygon-rpc.com, now answers "tenant disabled").
- * POLYGON_RPC_URL, if set, goes first. Verified 2026-11-12.
- */
-export const POLYGON_RPCS = ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org", "https://1rpc.io/matic"];
-const polygonClient = () =>
-  createPublicClient({
-    chain: polygon,
-    transport: fallback([process.env.POLYGON_RPC_URL, ...POLYGON_RPCS].filter((u): u is string => !!u).map((u) => http(u, { timeout: 8_000 }))),
-  });
-
 export const defaultDeps: EngineDeps = {
   computeQuote,
   deriveEvmAddress: (a) => deriveEvmAddress(a, "mainnet"),
@@ -59,8 +48,7 @@ export const defaultDeps: EngineDeps = {
   requestQuote,
   getStatus,
   submitDeposit,
-  usdcBalance: (address) =>
-    polygonClient().readContract({ address: USDC_POLYGON_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [address] }),
+  usdcBalance,
   now: () => new Date(),
 };
 
