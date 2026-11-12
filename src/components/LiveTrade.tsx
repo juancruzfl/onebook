@@ -1,82 +1,90 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ConnectAccounts } from "@/components/ConnectAccounts";
 import { VenueLogo } from "@/components/Logos";
-import { fmtCents, fmtUsd, VENUE } from "@/lib/present";
+import { loadConnections, type VenueConnection } from "@/lib/live/browser-keys";
+import { planLiveOrder, sendLeg } from "@/lib/live/client";
 import type { LiveExecution } from "@/lib/live/execute";
-import type { RoutePlan } from "@/lib/router";
+import { isLiveVenue, type LiveVenue } from "@/lib/live/orders";
+import { fmtCents, fmtUsd, VENUE } from "@/lib/present";
 import type { Side, VenueId } from "@/lib/venues/types";
 
 interface LiveStatus {
   enabled: boolean;
   maxUsd: number;
-  liveVenues: VenueId[];
-  venues?: Record<string, { connected: boolean; error?: string }>;
 }
 
 const newRequestId = () => `live-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /**
- * Real split orders on regulated venues with the operator's own accounts (Kalshi + Polymarket US).
- * Renders nothing unless the server has ONEBOOK_LIVE_ORDERS=on.
+ * Real split orders on regulated venues from the user's OWN accounts (Kalshi, Polymarket US), signed in
+ * the browser with keys that never leave it. Renders nothing unless the server has ONEBOOK_LIVE_ORDERS=on.
  */
-export function LiveTrade({
-  markets,
-  side,
-  budgetUsd,
-  allowNearEquivalent,
-  plan,
-}: {
-  markets: { venue: VenueId; marketId: string }[];
-  side: Side;
-  budgetUsd: number;
-  allowNearEquivalent: boolean;
-  plan: RoutePlan | null;
-}) {
+export function LiveTrade({ markets, side, budgetUsd }: { markets: { venue: VenueId; marketId: string }[]; side: Side; budgetUsd: number }) {
   const [status, setStatus] = useState<LiveStatus | null>(null);
+  const [conns, setConns] = useState<Partial<Record<LiveVenue, VenueConnection>>>({});
+  const [showAccounts, setShowAccounts] = useState(false);
+  const [review, setReview] = useState<LiveExecution | null>(null);
+  const [result, setResult] = useState<LiveExecution | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<LiveExecution | null>(null);
 
+  const refreshConns = useCallback(() => void loadConnections().then(setConns), []);
   useEffect(() => {
     fetch("/api/live")
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => setStatus(null));
-  }, []);
+    refreshConns();
+  }, [refreshConns]);
+
+  // A new amount/side/market invalidates a reviewed plan.
+  useEffect(() => {
+    setReview(null);
+    setConfirmed(false);
+  }, [markets, side, budgetUsd]);
 
   if (!status?.enabled) return null;
 
-  const legsVenues = [...new Set((plan?.allocations ?? []).map((a) => a.venue))];
-  const notLive = markets.find((m) => !status.liveVenues.includes(m.venue));
-  const notConnected = legsVenues.find((v) => !status.venues?.[v]?.connected);
-  const tooBig = budgetUsd > status.maxUsd;
-  const blocked = notLive
-    ? `${VENUE[notLive.venue].name} is quote-only. Untick "also include" to trade live.`
-    : notConnected
-      ? `No working API key for ${VENUE[notConnected].name}${status.venues?.[notConnected]?.error ? `: ${status.venues[notConnected].error}` : ""}.`
-      : tooBig
-        ? `Live limit: $${status.maxUsd} per order.`
-        : !plan || plan.totalShares === 0
-          ? "Waiting for a route."
+  const offVenue = markets.find((m) => !isLiveVenue(m.venue));
+  const tradable = markets.filter((m) => isLiveVenue(m.venue) && conns[m.venue as LiveVenue]);
+  const connectedNames = tradable.map((m) => VENUE[m.venue].name);
+  const blocked = offVenue
+    ? `${VENUE[offVenue.venue].name} is quote-only. Untick "also include" to trade live.`
+    : tradable.length === 0
+      ? "Connect a Kalshi or Polymarket US account to trade live."
+      : budgetUsd > status.maxUsd
+        ? `Live limit: ${fmtUsd(status.maxUsd)} per order.`
+        : !(budgetUsd > 0)
+          ? "Enter an amount."
           : null;
 
-  async function place() {
+  async function doReview() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/live/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markets, side, budgetUsd, allowNearEquivalent, requestId: newRequestId(), confirm: true }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setResult(json);
-      setConfirmed(false);
+      setReview(await planLiveOrder({ markets: tradable, side, budgetUsd, requestId: newRequestId() }));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function place() {
+    if (!review) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const results = await Promise.allSettled(review.legs.map((l, i) => sendLeg(review, i, conns[l.venue]!)));
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed) setError(String(failed.reason?.message ?? failed.reason));
+      const res = await fetch(`/api/live/${review.id}`);
+      setResult(res.ok ? ((await res.json()) as LiveExecution) : null);
+      setReview(null);
+      setConfirmed(false);
     } finally {
       setBusy(false);
     }
@@ -85,9 +93,13 @@ export function LiveTrade({
   return (
     <section className="live-box">
       <div className="live-head">
-        <strong>Live orders</strong>
-        <span className="pill warn">real money</span>
+        <strong>Trade live with your accounts</strong>
+        <button className="link-btn" onClick={() => setShowAccounts((s) => !s)}>
+          {showAccounts ? "Hide accounts" : `Accounts (${Object.keys(conns).length})`}
+        </button>
       </div>
+      {(showAccounts || Object.keys(conns).length === 0) && <ConnectAccounts connections={conns} onChange={refreshConns} />}
+
       {result ? (
         <>
           <p className="small">
@@ -95,7 +107,9 @@ export function LiveTrade({
               ? "All legs filled."
               : result.outcome === "partial"
                 ? "Partially filled: one venue filled, another did not. Nothing was retried or undone."
-                : "Nothing filled. No money was spent."}
+                : result.outcome === "none-filled"
+                  ? "Nothing filled. No money was spent."
+                  : "Some legs are still pending."}
           </p>
           {result.legs.map((l) => (
             <div key={l.clientOrderId} className="route-row">
@@ -103,10 +117,12 @@ export function LiveTrade({
               <span>{VENUE[l.venue].name}</span>
               <span className={l.status === "filled" ? "win small" : l.status === "error" ? "err-text small" : "muted small"}>
                 {l.status === "filled"
-                  ? `filled ${l.result?.filled} @ ≤${fmtCents(l.limitPrice)}`
+                  ? `filled ${l.filled} @ ≤${fmtCents(l.limitPrice)}`
                   : l.status === "error"
                     ? l.error
-                    : `not filled (price moved; ${l.result?.sentShares} @ ≤${fmtCents(l.limitPrice)})`}
+                    : l.status === "not-filled"
+                      ? `not filled (price moved)`
+                      : l.status}
               </span>
             </div>
           ))}
@@ -114,28 +130,45 @@ export function LiveTrade({
             New order
           </button>
         </>
-      ) : (
+      ) : review ? (
         <>
           <p className="muted tiny">
-            Sends one fill-or-kill limit order per venue from your own Kalshi and Polymarket US accounts. Each leg
-            fills completely at the quoted limit or better, or not at all. Legs are independent: one can fill
-            while the other does not.
+            Exact orders to send, each fill-or-kill: it fills completely at the limit or better, or not at all.
+            Legs are independent. This review expires in 30 seconds.
           </p>
+          {review.legs.map((l) => (
+            <div key={l.clientOrderId} className="route-row">
+              <VenueLogo venue={l.venue} />
+              <span>{VENUE[l.venue].name}</span>
+              <span className="muted small">
+                {l.shares} {side === "yes" ? "Yes" : "No"} @ ≤{fmtCents(l.limitPrice)} · ~{fmtUsd(l.plannedCost)}
+              </span>
+            </div>
+          ))}
+          <label className="consent">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            Place these real orders from my accounts
+          </label>
+          <button className={`cta ${side}`} disabled={!confirmed || busy} onClick={place}>
+            {busy ? "Placing…" : `Place live orders · ${fmtUsd(budgetUsd)}`}
+          </button>
+          <button className="link-btn" onClick={() => setReview(null)}>
+            Cancel
+          </button>
+        </>
+      ) : (
+        <>
           {blocked ? (
             <p className="muted small">{blocked}</p>
           ) : (
-            <label className="consent">
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-              Place real orders for {fmtUsd(budgetUsd)} on{" "}
-              {legsVenues.map((v) => VENUE[v].name).join(" and ")}
-            </label>
+            <p className="muted tiny">Routes {fmtUsd(budgetUsd)} across {connectedNames.join(" and ")}. You review the exact orders next.</p>
           )}
-          <button className={`cta ${side}`} disabled={!!blocked || !confirmed || busy} onClick={place}>
-            {busy ? "Placing…" : `Place live orders · ${fmtUsd(budgetUsd)}`}
+          <button className={`cta ${side}`} disabled={!!blocked || busy} onClick={doReview}>
+            {busy ? "Preparing…" : "Review live order"}
           </button>
-          {error && <p className="err-text small">{error}</p>}
         </>
       )}
+      {error && <p className="err-text small">{error}</p>}
     </section>
   );
 }

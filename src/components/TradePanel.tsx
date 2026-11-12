@@ -241,7 +241,7 @@ export function TradePanel({
           )}
         </section>
 
-        <LiveTrade markets={quoted} side={side} budgetUsd={budget} allowNearEquivalent={accepted} plan={shown} />
+        <LiveTrade markets={quoted} side={side} budgetUsd={budget} />
 
         {executing && shown ? (
           <OrderFlow

@@ -48,13 +48,14 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
    edge-case rules) is a `warning`.
 4. **No custody.** Designs must keep user funds at addresses controlled by the user's NEAR account
    (Chain Signatures). Do not add a pooled or router-held wallet.
-5. **Live orders only on regulated venues, only with the operator's own accounts, and no
+5. **Live orders only on regulated venues, only from the user's own accounts, and no
    geo-circumvention.** Polymarket (international) and Hyperliquid stay dry-run (`ORDER_DRY_RUN` is
    final). Live orders (`src/lib/live`) go only to `LIVE_VENUES` (Kalshi, Polymarket US: CFTC-regulated),
-   with the operator's own API keys, behind `ONEBOOK_LIVE_ORDERS=on`, `MAX_LIVE_USD` and an explicit
-   click, on localhost only. Never add a venue to `LIVE_VENUES` without the human's approval, never store
-   other users' venue keys, and never add proxies, region-hopping hosting or anything else that gets
-   around a venue's geographic restrictions.
+   from each user's own account with the user's own API keys, behind `ONEBOOK_LIVE_ORDERS=on`,
+   `MAX_LIVE_USD` and an explicit review + confirm. **Venue secrets never leave the user's browser**
+   (non-extractable WebCrypto keys); the server must never receive, log or store them, and only relays
+   bodies it planned itself. Never add a venue to `LIVE_VENUES` without the human's approval, and never
+   add proxies, region-hopping hosting or anything else that gets around a venue's geographic restrictions.
 6. **Execution order of operations:** the venue order is signed and verified (`AWAITING_SIGNATURE` →
    `AWAITING_DEPOSIT_TX`) before the deposit transaction is ever offered. Every wallet prompt is a
    separate user click. Keep `MAX_ORDER_USD` (server) and `MAX_EXEC_USD` (UI) in sync, and never raise

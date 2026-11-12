@@ -126,33 +126,42 @@ clicks.
 ### Live split orders on regulated venues (`src/lib/live`)
 
 A second execution path, for venues where the user trades from their own verified account instead of an
-on-chain address: Kalshi and Polymarket US (both CFTC-regulated, `LIVE_VENUES`).
+on-chain address: Kalshi and Polymarket US (both CFTC-regulated, `LIVE_VENUES`). Users connect their own API
+keys; **the secrets never leave the browser**.
 
 ```
-POST /api/live/execute { markets, side, budgetUsd, requestId, confirm: true }   (localhost only)
-  guards     ONEBOOK_LIVE_ORDERS=on, budget <= MAX_LIVE_USD ($10), every market in LIVE_VENUES,
-             an API key for every leg, requestId never executed before
-  re-quote   computeQuote(): re-lists, re-checks fungibility, reads live books → allocations + limit prices
-  legs       one fill-or-kill limit order per venue, in parallel
-             Kalshi        POST /trade-api/v2/portfolio/events/orders  side bid|ask, YES price, whole contracts
-             Polymarket US POST /v1/orders  ORDER_INTENT_BUY_LONG|BUY_SHORT, YES price, 0.01 contracts
-  result     per leg filled / not-filled / error; outcome all-filled | partial | none-filled
-             stored in the live_executions table (same SQLite file as the order queue)
+connect   browser: import key as a NON-EXTRACTABLE WebCrypto key (Ed25519 / RSA-PSS), store in IndexedDB,
+          check it with a signed balance read
+plan      POST /api/live/plan {markets, side, budgetUsd, requestId}
+          guards: ONEBOOK_LIVE_ORDERS=on, budget <= MAX_LIVE_USD ($10), only LIVE_VENUES, unique requestId
+          computeQuote() re-lists, re-checks fungibility, reads live books → exact order body per leg
+          (Kalshi whole contracts, Polymarket US 0.01), plan valid 30 s
+send      Polymarket US: POST /api/live/:id/claim (once, while fresh) → browser signs and posts the planned
+                         body to api.polymarket.us (CORS allows it) → POST /api/live/:id/report
+          Kalshi:        browser signs `ts + POST + /trade-api/v2/portfolio/events/orders` → POST
+                         /api/live/:id/kalshi {leg, keyId, ts, signature} → server forwards ONLY the planned
+                         body for that leg, once, while fresh (Kalshi rejects auth headers from browsers)
+result    per leg filled / not-filled / error; outcome all-filled | partial | none-filled
+          (live_executions table, same SQLite file as the order queue; GET /api/live/:id)
 ```
 
-Signing (`src/lib/live/auth.ts`): both venues sign `timestamp_ms + METHOD + path` (no query string). Kalshi
-uses RSA-PSS/SHA-256 (or Ed25519), Polymarket US Ed25519 from the first 32 bytes of the base64 secret.
+Neither venue's signature covers the request body. That is why the relay never accepts a body from the
+client: it sends the body it planned for that leg. A signature is only valid for one timestamp and path.
 
 Atomicity: each leg is all-or-nothing at its limit price, but legs are not atomic with each other. A partial
 route (one venue filled, one killed because its book moved) is reported, not retried or unwound. With a $10
-cap the worst case is holding a smaller position than planned at a price no worse than quoted.
+cap the worst case is a smaller position than planned at a price no worse than quoted.
+
+Production path: Polymarket US's ISV partner program (firm-level auth, in-app KYC, accounts provisioned on
+approval). Bring-your-own-key stays as an option alongside it.
 
 How NEAR fits here: regulated venues hold funds in the user's own account (deposits must come from accounts
 in the user's name), so positions are not at a Chain Signatures address and 1Click cannot fund them directly.
 NEAR stays the settlement layer for on-chain venues.
 
 TODO(verify): Polymarket US BUY_SHORT price convention in a live order (docs say prices always refer to YES);
-the `/v1/account/balances` response shape; Kalshi fractional counts on 15m markets (we send whole contracts).
+the `/v1/account/balances` response shape; Kalshi fractional counts on 15m markets (we send whole contracts);
+WebCrypto Ed25519 support in the user's browser (recent Chrome, Firefox, Safari).
 
 ### Gaps before live trading
 

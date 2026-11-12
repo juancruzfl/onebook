@@ -61,7 +61,7 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ verified on mainnet: [tx `BoZABTss…gBE2`](https://nearblocks.io/txns/BoZABTssdxRisVA7g9LGwyXAtADBjcvNW9QFFWnYgBE2), 0.00085 NEAR gas |
 | NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ built; live quotes and deposit transactions verified; first mainnet swap pending |
 | Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
-| Live split orders on Kalshi + Polymarket US with your own API keys (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap, localhost only; first live run pending |
+| Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap; first live run pending |
 | Live order submission to Polymarket (international), Hyperliquid | 🚫 dry run only (see Compliance) |
 
 ## Try it
@@ -126,18 +126,24 @@ related pairs, and for near-equivalent pairs unless `allowNearEquivalent` is `tr
 ### Live split orders (Kalshi + Polymarket US, your own accounts)
 
 Both venues are CFTC-regulated and list the same 15-minute up/down markets, settled on the same CF Benchmarks
-60-second average, so onebook routes across them without any opt-in. To trade live with your own accounts:
+60-second average, so onebook routes across them without any opt-in. Each user connects their own accounts:
 
-1. Have a verified, funded account on [Kalshi](https://kalshi.com) and on Polymarket US (identity verification
-   in the app), and create an API key on each (Kalshi: Account → API keys; Polymarket US:
+1. The server operator sets `ONEBOOK_LIVE_ORDERS=on` (see `.env.example`).
+2. The user needs a verified, funded account on [Kalshi](https://kalshi.com) and/or Polymarket US (identity
+   verification in its app) and an API key for each (Kalshi: Account & security → API keys; Polymarket US:
    polymarket.us/developer).
-2. Put the keys in `.env.local` (see `.env.example`) and set `ONEBOOK_LIVE_ORDERS=on`.
-3. Run `npm run dev -- -H 127.0.0.1` (live orders are only accepted on localhost) and open a market.
-   `GET /api/live` shows whether each key works.
-4. The trade panel shows **Live orders**. Tick the confirmation and click **Place live orders · $X** (max $10).
-   onebook re-quotes on the server and sends one fill-or-kill limit order per venue at the quoted limit price.
-   Each leg fills completely at that price or better, or not at all. Legs are independent: one can fill
-   while the other is killed, and the panel says so. Nothing is retried or unwound automatically.
+3. In the trade panel, **Trade live with your accounts → Connect API key**. The key is imported into the
+   browser as a non-exportable key and checked with a balance read. **It never reaches onebook's server.**
+4. **Review live order** shows the exact orders (venue, contracts, limit price). Tick the confirmation and
+   **Place live orders** (max $10). The browser signs each order. Polymarket US orders go straight from the
+   browser to Polymarket US. Kalshi does not accept signed requests from browsers, so onebook's server
+   relays the browser-signed Kalshi order, and only the order body it planned for that leg.
+5. Each leg is fill-or-kill at its limit price: it fills completely at that price or better, or not at all.
+   Legs are independent, so one can fill while the other is killed. The panel says so; nothing is retried
+   or unwound automatically.
+
+Polymarket US also runs a partner program for software vendors (in-app identity checks, accounts created
+automatically). If onebook joins it, that becomes the default; connecting your own key stays as an option.
 
 ## How NEAR fits
 
@@ -151,9 +157,9 @@ Both venues are CFTC-regulated and list the same 15-minute up/down markets, sett
 
 The author is in the US, where Polymarket's international exchange and Hyperliquid are not available for
 opening positions. onebook therefore **reads** public market data from them but does not submit orders
-(dry run). Live orders go only to CFTC-regulated venues (Kalshi, Polymarket US), from the operator's own
-verified accounts with the operator's own API keys. onebook does not hold or relay other people's venue
-credentials; offering live routing to other users would need legal review (e.g. introducing-broker rules). It does not help anyone get around a venue's geographic restrictions: a live deployment must
+(dry run). Live orders go only to CFTC-regulated venues (Kalshi, Polymarket US), from each user's own
+verified account with their own API key, held only in their browser. onebook never holds venue credentials
+or funds. Offering this publicly still needs legal review (e.g. introducing-broker rules, venue API terms). It does not help anyone get around a venue's geographic restrictions: a live deployment must
 enforce each venue's restrictions, as the venues themselves do (for example Polymarket's
 `/api/geoblock` check). This is software, not legal advice.
 
@@ -163,7 +169,7 @@ enforce each venue's restrictions, as the venues themselves do (for example Poly
 src/lib/spec.ts            PayoutSpec types: the venue-independent payout model
 src/lib/extractors/*.ts    rules text → PayoutSpec, one file per venue (pure, tested)
 src/lib/venues/*.ts        venue adapters (listing, order books, fees) + registry
-src/lib/live/*             live orders on regulated venues: request signing, Kalshi + Polymarket US clients
+src/lib/live/*             live orders on regulated venues: browser-held keys, planning, Kalshi relay
 src/lib/matcher.ts         compareSpecs / matchListings → tiers + diffs
 src/lib/router.ts          planRoute: split a budget across fungible books
 src/lib/near/chainsig.ts   Chain Signatures: MPC contract, EVM address derivation (server)

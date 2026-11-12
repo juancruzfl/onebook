@@ -944,3 +944,37 @@ code {
   align-items: center;
   justify-content: space-between;
 }
+.accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 4px 28px;
+}
+.connect-form input,
+.connect-form textarea {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  resize: vertical;
+}
+.connect-form textarea {
+  font-family: var(--font-geist-mono, monospace);
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
