@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AssetIcon, VenueDots } from "@/components/MarketCard";
 import { Countdown } from "@/components/Countdown";
 import { VenueLogo } from "@/components/Logos";
+import { OrderFlow } from "@/components/OrderFlow";
 import { useWallet } from "@/components/WalletProvider";
 import type { MarketView } from "@/lib/market-view";
 import { diffLines, fmtCents, fmtUsd, marketCopy, TIER_COPY, VENUE } from "@/lib/present";
@@ -11,6 +12,8 @@ import type { RoutePlan } from "@/lib/router";
 import type { Side } from "@/lib/venues/types";
 
 const QUICK = [5, 25, 100];
+/** Mirrors MAX_ORDER_USD on the server (demo safety cap). */
+const MAX_EXEC_USD = 10;
 
 export function TradePanel({
   market,
@@ -28,7 +31,8 @@ export function TradePanel({
   const needsConsent = market.tier === "near-equivalent";
   const { accountId, connect } = useWallet();
 
-  const [amount, setAmount] = useState("25");
+  const [amount, setAmount] = useState("5");
+  const [executing, setExecuting] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [plan, setPlan] = useState<RoutePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +93,9 @@ export function TradePanel({
   /** Hide a quote for the other side while the new one loads. */
   const shown = plan && plan.side === side ? plan : null;
   const unspent = shown ? Math.max(0, budget - shown.totalCost) : 0;
-  
+  /** Execution goes to Polymarket only (the venue we can sign for); other venues are quote-only. */
+  const canExecute = market.listings.some((l) => l.venue === "polymarket");
+
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -222,18 +228,31 @@ export function TradePanel({
           )}
         </section>
 
-        {accountId ? (
-          <button className={`cta ${side}`} disabled title="Execution is not enabled yet">
-            Buy {label} · coming soon
-          </button>
-        ) : (
+        {executing && shown ? (
+          <OrderFlow
+            markets={market.listings.map((l) => ({ venue: l.venue, marketId: l.marketId }))}
+            side={side}
+            budgetUsd={budget}
+            allowNearEquivalent={accepted}
+            onClose={() => setExecuting(false)}
+          />
+        ) : !accountId ? (
           <button className={`cta ${side}`} onClick={connect}>
             Connect wallet to trade
           </button>
+        ) : (
+          <button
+            className={`cta ${side}`}
+            disabled={!canExecute || !(budget > 0) || budget > MAX_EXEC_USD}
+            onClick={() => setExecuting(true)}
+          >
+            Buy {label} · {fmtUsd(budget || 0)} on Polymarket
+          </button>
         )}
         <p className="muted tiny center">
-          Prices are live. Orders will settle through NEAR Intents and Chain Signatures. Execution is not enabled in
-          this demo.
+          {budget > MAX_EXEC_USD
+            ? `Demo limit: execution is capped at $${MAX_EXEC_USD}. Quotes work for any size.`
+            : "Execution uses Polymarket only, paid in NEAR via NEAR Intents and signed by your NEAR account via Chain Signatures. The Polymarket order is a dry run; the route above is a quote."}
         </p>
 
         <details className="rules">

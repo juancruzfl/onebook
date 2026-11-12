@@ -55,16 +55,16 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Matcher (equivalent / near-equivalent / related) | ✅ done, unit-tested |
 | Router quote (split across books, fees, minimums) | ✅ done, unit-tested |
 | Web UI: market cards, trade panel with live split quotes, light/dark, mobile bottom sheet | ✅ done |
-| NEAR Intents (1Click) swap to venue collateral | ⏳ next |
 | Chain Signatures: derive the user's EVM address from their NEAR account (`/api/near/address`) | ✅ done, checked against `v1.signer` |
 | Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
-| Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ built; first mainnet signature pending |
-| Execution queue (state machine, see `docs/ARCHITECTURE.md`) | ⏳ next |
+| Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ verified on mainnet: [tx `BoZABTss…gBE2`](https://nearblocks.io/txns/BoZABTssdxRisVA7g9LGwyXAtADBjcvNW9QFFWnYgBE2), 0.00085 NEAR gas |
+| NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ built; live quotes and deposit transactions verified; first mainnet swap pending |
+| Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
 | Live order submission to venues | 🚫 dry run only (see Compliance) |
 
 ## Try it
 
-Requires Node.js 20+.
+Requires Node.js 22.5+ (the order queue uses the built-in `node:sqlite`).
 
 ```sh
 npm install
@@ -82,8 +82,7 @@ npm test               # unit tests for extractors, matcher, router
    combine these venues"*.
 3. Enter an amount, or use the +$5 / +$25 / +$100 chips. The panel re-quotes against live order books
    and shows the average price, shares, **To win**, how the order splits across venues, and how much more
-   it pays than the best single venue. The buy button is disabled because execution is not enabled.
-   *How this market settles* shows each venue's own rules text.
+   it pays than the best single venue. *How this market settles* shows each venue's own rules text.
 4. Tick **Show non-combinable** to also see markets onebook refuses to combine (badge
    "Not the same bet"). Their buttons are disabled.
 5. Open http://localhost:3000/sign-test, click **Connect wallet**, then **Sign a test order**. Your wallet
@@ -91,6 +90,19 @@ npm test               # unit tests for extractors, matcher, router
    and unused gas refunded. After it lands, the page shows **✓ Valid: the order was signed by your
    address** and links to the NEAR transaction. The order uses a placeholder token id and is never sent
    to Polymarket.
+6. **Execute (spends real NEAR, capped at $10):** connect a wallet, open a market, enter up to $10, then
+   click **Buy Up · $5 on Polymarket**. A step tracker appears:
+   1. **Sign order:** your wallet approves one `v1.signer.sign` call. The Polymarket V2 order (maker = your
+      derived Polygon address, limit price from the live book, sized from the swap's guaranteed minimum)
+      is signed by your NEAR account through Chain Signatures. No funds move yet.
+   2. **Deposit:** after a separate click, your wallet approves one `wrap.near` transaction
+      (`storage_deposit` → `near_deposit` → `ft_transfer` to the 1Click deposit address).
+   3. **Swap:** the queue polls 1Click until `SUCCESS` (about 30 s). The USDC lands at your own Polygon
+      address. A failed swap is refunded to your NEAR account.
+   4. **Order (dry run):** the queue reads your USDC balance on Polygon, confirms the order is funded and
+      signed, and records the exact payload it would post. It does not post it (see Compliance).
+
+   Links to the NEAR Intents Explorer and Polygonscan appear under the tracker.
 
 API, if you prefer curl:
 
@@ -101,6 +113,10 @@ curl -s -X POST localhost:3000/api/quote -H 'Content-Type: application/json' -d 
   "markets": [{"venue":"polymarket","marketId":"<conditionId>"},{"venue":"kalshi","marketId":"<ticker>"}],
   "side": "yes", "budgetUsd": 50, "allowNearEquivalent": true }'
 ```
+
+Execution API: `POST /api/orders` (prepare, returns the two NEAR transactions), `POST
+/api/orders/:id/signed`, `POST /api/orders/:id/deposited`, `GET /api/orders/:id` (state, event log).
+Configuration: see `.env.example`.
 
 `/api/quote` re-fetches the markets and re-checks every pair on the server. It answers `422` for
 related pairs, and for near-equivalent pairs unless `allowNearEquivalent` is `true`.
@@ -131,6 +147,9 @@ src/lib/matcher.ts         compareSpecs / matchListings → tiers + diffs
 src/lib/router.ts          planRoute: split a budget across fungible books
 src/lib/near/chainsig.ts   Chain Signatures: MPC contract, EVM address derivation (server)
 src/lib/near/mpc.ts        MPC `sign` transaction + signature conversion (browser-safe)
+src/lib/near/wrap.ts       NEAR deposit transaction for a 1Click quote (wrap + transfer)
+src/lib/intents/oneclick.ts  NEAR Intents 1Click API client
+src/lib/orders/*           execution queue: state machine, SQLite store, worker (src/instrumentation.ts)
 src/lib/polymarket/order.ts  Polymarket CLOB V2 EIP-712 order
 src/components/Wallet*.tsx connect-wallet provider and button
 src/app/api/*              /api/markets, /api/quote
