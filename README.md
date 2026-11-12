@@ -27,10 +27,27 @@ on both legs.
    - **Related**: same asset and time, different payout. Never routed together.
 4. **Quotes a route**: spends a budget across the live order books of fungible markets, cheapest first,
    including fees and venue minimum order sizes, and compares the result with the best single venue.
-5. **Settles through NEAR** *(in progress, see Status)*: the user pays in whatever token they hold. NEAR
-   Intents swaps it into the venue's collateral and delivers it to an address **derived from the user's
-   NEAR account via Chain Signatures**. The same NEAR account signs the venue order through the MPC
-   network, so the position is owned by the user's NEAR account and onebook never holds funds.
+5. **Executes** through one of two modes, depending on the venue (next section).
+
+## Two modes: international (NEAR-native) and US (connected accounts)
+
+Venues come in two kinds, and onebook executes on each the way that venue allows. The matcher and router
+above are shared: the payout-spec check is the same whichever way a venue is reached.
+
+| | **International mode** | **US mode** |
+|---|---|---|
+| Venues | On-chain: Polymarket (international), Hyperliquid; later Limitless, … | CFTC-regulated: Kalshi, Polymarket US |
+| Account | **Your NEAR wallet.** Each venue's address is derived from it with Chain Signatures; no signup | Your own Kalshi / Polymarket US accounts (identity verified by the venue) |
+| Funding | **NEAR Intents, ahead of time**: NEAR → USDC (+ gas) at your address on each venue's chain (trading balance) | The venue's own deposit methods (bank, card, in-app crypto). Deposits must come from accounts in your own name, so NEAR cannot fund them directly |
+| Trading | One NEAR signature per order (MPC-signed venue order), paid from the trading balance | Connect your API keys (kept only in your browser); onebook re-quotes, the browser signs, one fill-or-kill order per venue |
+| Withdraw | Back to your NEAR account through NEAR Intents | The venue's own withdrawal methods |
+| Custody | Addresses only your NEAR account controls; onebook never holds funds | The regulated venue holds your account; onebook never holds keys or funds |
+| Who | Users where those venues are available (they geoblock the US) | US users |
+| Status | Built and verified on mainnet; venue order submission is a **dry run** for the US-based author | Built; first live fill on Polymarket US verified |
+| Later | More chains as funding targets (Base, Solana, HyperCore) | Polymarket US partner (ISV) program: in-app identity check, no API keys; connecting your own key stays an option |
+
+Which mode a user sees depends on where they are: each venue keeps its own geographic restrictions, and
+onebook must enforce them, not route around them (see Compliance).
 
 ### A real example (captured 2026-11-11)
 
@@ -160,11 +177,16 @@ automatically). If onebook joins it, that becomes the default; connecting your o
 
 ## How NEAR fits
 
-- **NEAR Intents (1Click API):** turns any token the user holds into the collateral each venue settles in,
-  on that venue's chain, in one step, with an automatic refund if the swap cannot settle.
-- **Chain Signatures:** gives every NEAR account its own address on each venue's chain. Positions sit at
-  that address and only the user's NEAR account can sign for it. One NEAR account can hold positions on
-  every venue without separate wallets.
+NEAR is the account and the treasury for international mode; venues are destinations.
+
+- **Chain Signatures:** gives every NEAR account its own address on each venue's chain. Balances and positions
+  sit at those addresses and only the user's NEAR account can sign for them: venue orders, transfers and
+  withdrawals are all MPC-signed by the NEAR account. One NEAR account trades every venue, no extra wallets.
+- **NEAR Intents (1Click API):** moves money between the NEAR account and those addresses: NEAR → USDC (+ gas)
+  on each venue's chain ahead of time (trading balance), and back to NEAR on withdraw, with automatic refunds
+  if a swap cannot settle.
+- US mode does not use NEAR for funds (regulated venues hold accounts in the user's name); it shares the
+  matcher, router and UI.
 
 ## Compliance
 

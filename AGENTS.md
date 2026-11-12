@@ -37,6 +37,16 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
 - `tests/`: vitest. `tests/fixtures.ts` holds trimmed **real** API responses. When you add an extractor,
   add a real fixture and tests for both acceptance and rejection.
 
+## Two execution modes
+
+- **International (NEAR-native):** on-chain venues, addresses derived from the NEAR account via Chain Signatures,
+  funded ahead of time through NEAR Intents (`src/lib/orders`, `src/lib/funding`, `src/lib/withdraw`).
+- **US (connected accounts):** regulated venues (Kalshi, Polymarket US), the user's own accounts and API keys
+  held in their browser (`src/lib/live`).
+
+Matching and routing are shared. Never mix the two in one order, and never route a user to a venue their
+location does not allow.
+
 ## Rules that must not be broken
 
 1. **Fail closed.** If an extractor does not recognise a market's rules wording, it returns
