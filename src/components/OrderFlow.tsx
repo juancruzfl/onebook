@@ -12,6 +12,11 @@ interface NearTx {
 
 const FINAL: OrderState[] = ["ORDER_DRY_RUN", "SWAP_FAILED", "EXPIRED", "ERROR"];
 
+const BALANCE_STEPS: { key: string; label: string; doneAt: OrderState[] }[] = [
+  { key: "sign", label: "Sign the order with your NEAR account", doneAt: ["SWAP_SETTLED", "ORDER_DRY_RUN"] },
+  { key: "order", label: "Place order on Polymarket (dry run)", doneAt: ["ORDER_DRY_RUN"] },
+];
+
 const STEPS: { key: string; label: string; doneAt: OrderState[] }[] = [
   { key: "sign", label: "Sign the order with your NEAR account", doneAt: ["AWAITING_DEPOSIT_TX", "AWAITING_SWAP", "SWAP_SETTLED", "ORDER_DRY_RUN"] },
   { key: "deposit", label: "Deposit NEAR", doneAt: ["AWAITING_SWAP", "SWAP_SETTLED", "ORDER_DRY_RUN"] },
@@ -35,12 +40,15 @@ export function OrderFlow({
   side,
   budgetUsd,
   allowNearEquivalent,
+  fromBalance,
   onClose,
 }: {
   markets: { venue: VenueId; marketId: string }[];
   side: Side;
   budgetUsd: number;
   allowNearEquivalent: boolean;
+  /** The user's trading balance covers this order: expect sign-and-done (the server decides). */
+  fromBalance?: boolean;
   onClose: () => void;
 }) {
   const { accountId, signAndSend } = useWallet();
@@ -64,7 +72,7 @@ export function OrderFlow({
       setBusy("Preparing your order…");
       const prep = await api("/api/orders", { account: accountId, markets, side, budgetUsd, allowNearEquivalent });
       setOrder(prep.order);
-      setDeposit(prep.nearTxs.deposit);
+      setDeposit(prep.nearTxs.deposit ?? null);
       setBusy("Approve the signature in your wallet…");
       const { result, txHash } = await signAndSend(prep.nearTxs.sign);
       setBusy("Verifying signature…");
@@ -107,6 +115,8 @@ export function OrderFlow({
     return () => clearInterval(t);
   }, [order, api]);
 
+  const paidFromBalance = order ? order.funding === "balance" : !!fromBalance;
+  const steps = paidFromBalance ? BALANCE_STEPS : STEPS;
   const current = order ? activeStep[order.state] : undefined;
   const failed = order && ["SWAP_FAILED", "EXPIRED", "ERROR"].includes(order.state);
 
@@ -129,13 +139,13 @@ export function OrderFlow({
       )}
       {order && (
         <div className="kv small">
-          <span>You deposit</span>
-          <strong>{order.swap.amountInFormatted} NEAR</strong>
+          <span>{order.swap ? "You deposit" : "Paid from"}</span>
+          <strong>{order.swap ? `${order.swap.amountInFormatted} NEAR` : `your balance · ${(Number(order.usdcAmount) / 1e6).toFixed(2)} USDC`}</strong>
         </div>
       )}
 
       <ol className="flow-steps">
-        {STEPS.map((s) => {
+        {steps.map((s) => {
           const done = order ? s.doneAt.includes(order.state) : false;
           const active = current === s.key;
           return (
@@ -150,7 +160,9 @@ export function OrderFlow({
       {!order && (
         <>
           <p className="muted small">
-            Your NEAR account signs the order first; nothing is spent until you approve the deposit in the next step.
+            {paidFromBalance
+              ? "Paid from the USDC already at your Polygon address: one signature and you're done."
+              : "Your NEAR account signs the order first; nothing is spent until you approve the deposit in the next step."}
           </p>
           <button className="cta yes" onClick={prepareAndSign} disabled={!!busy}>
             {busy ?? "Sign order"}
@@ -162,7 +174,7 @@ export function OrderFlow({
           Retry signing
         </button>
       )}
-      {order?.state === "AWAITING_DEPOSIT_TX" && (
+      {order?.state === "AWAITING_DEPOSIT_TX" && order.swap && (
         <>
           <p className="muted small">
             Order signed ✓. Deposit {order.swap.amountInFormatted} NEAR; NEAR Intents swaps it to at least{" "}
@@ -189,13 +201,17 @@ export function OrderFlow({
             ))}
         </ul>
       )}
-      {order?.swap.depositTxHash && (
+      {(order?.swap?.depositTxHash || (order?.funding === "balance" && order.state === "ORDER_DRY_RUN")) && (
         <p className="tiny">
-          <a href={`https://explorer.near-intents.org/?depositAddress=${order.swap.depositAddress}`} target="_blank" rel="noreferrer">
-            Track swap on NEAR Intents Explorer ↗
-          </a>
-          {" · "}
-          <a href={`https://polygonscan.com/address/${order.evmAddress}`} target="_blank" rel="noreferrer">
+          {order?.swap && (
+            <>
+              <a href={`https://explorer.near-intents.org/?depositAddress=${order.swap.depositAddress}`} target="_blank" rel="noreferrer">
+                Track swap on NEAR Intents Explorer ↗
+              </a>
+              {" · "}
+            </>
+          )}
+          <a href={`https://polygonscan.com/address/${order!.evmAddress}`} target="_blank" rel="noreferrer">
             Your Polygon address ↗
           </a>
         </p>

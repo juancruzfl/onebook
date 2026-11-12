@@ -62,9 +62,12 @@ const floor2 = (x: number) => Math.floor(x * 100 + 1e-9) / 100;
 
 export interface PreparedOrder {
   order: OrderRecord;
-  /** Send in this order: sign first (no funds move), then deposit. */
-  nearTxs: { sign: ReturnType<typeof mpcSignTx>; deposit: ReturnType<typeof wrapAndDepositTx> };
+  /** Send in this order: sign first (no funds move), then deposit. No deposit when paid from the balance. */
+  nearTxs: { sign: ReturnType<typeof mpcSignTx>; deposit?: ReturnType<typeof wrapAndDepositTx> };
 }
+
+/** How long a balance-funded order may wait for its signature: prices move, so keep it short. */
+const BALANCE_SIGN_TTL_MS = 2 * 60 * 1000;
 
 /**
  * Build an executable order for the Polymarket leg of a route:
@@ -84,8 +87,50 @@ export async function prepareOrder(account: string, q: QuoteInput, deps: EngineD
   if (!alloc || !listing) throw new QuoteError("Polymarket cannot fill this order right now", 422);
 
   const { address: evmAddress } = await deps.deriveEvmAddress(account);
-  const price = await deps.nearPriceUsd();
   const now = deps.now();
+  const outcome = q.side === "yes" ? "Up" : "Down";
+  const closeCap = listing.closeTime ? Date.parse(listing.closeTime) - 60_000 : Infinity;
+  const base = {
+    id: randomUUID(),
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    state: "AWAITING_SIGNATURE" as const,
+    account,
+    evmAddress,
+    market: { venue: "polymarket" as const, marketId: listing.marketId, title: listing.title, side: q.side, outcome, tokenId: listing.legs[q.side] },
+    limitPrice: alloc.limitPrice,
+    events: [],
+  };
+
+  // Fast path: USDC already at the user's Polygon address (added ahead of time). Sign and done.
+  const balance = await deps.usdcBalance(evmAddress);
+  if (balance >= BigInt(Math.ceil(alloc.cost * 1e6))) {
+    const shares = floor2(alloc.cost / alloc.limitPrice);
+    if (shares < MIN_SHARES)
+      throw new QuoteError(`Polymarket's minimum is ${MIN_SHARES} shares; increase the amount (would get ${shares})`, 422);
+    const { order, exchange } = buildBuyOrder({ maker: evmAddress, tokenId: listing.legs[q.side], price: alloc.limitPrice, shares, nowMs: now.getTime() });
+    const hash = orderHash(order, exchange);
+    let rec: OrderRecord = {
+      ...base,
+      shares,
+      usdcAmount: order.makerAmount,
+      expiresAt: new Date(Math.min(now.getTime() + BALANCE_SIGN_TTL_MS, closeCap)).toISOString(),
+      funding: "balance",
+      order,
+      exchange,
+      orderHash: hash,
+    };
+    rec = transition(
+      rec,
+      "AWAITING_SIGNATURE",
+      `Paid from your balance (${(Number(balance) / 1e6).toFixed(2)} USDC): order ${shares} ${outcome} @ ≤ ${alloc.limitPrice}`,
+      now,
+    );
+    saveOrder(rec);
+    return { order: rec, nearTxs: { sign: mpcSignTx(hash, "mainnet") } };
+  }
+
+  const price = await deps.nearPriceUsd();
   const amountNear = (alloc.cost / price) * NEAR_BUFFER;
   const amountYocto = (BigInt(Math.ceil(amountNear * 1e6)) * BigInt(10) ** BigInt(18)).toString(); // 6 dp of NEAR
 
@@ -121,22 +166,13 @@ export async function prepareOrder(account: string, q: QuoteInput, deps: EngineD
     nowMs: now.getTime(),
   });
   const hash = orderHash(order, exchange);
-  const outcome = q.side === "yes" ? "Up" : "Down";
 
   let rec: OrderRecord = {
-    id: randomUUID(),
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    state: "AWAITING_SIGNATURE",
-    account,
-    evmAddress,
-    market: { venue: "polymarket", marketId: listing.marketId, title: listing.title, side: q.side, outcome, tokenId: listing.legs[q.side] },
-    limitPrice: alloc.limitPrice,
+    ...base,
     shares,
     usdcAmount: order.makerAmount,
-    expiresAt: new Date(
-      Math.min(now.getTime() + QUOTE_TTL_MS, listing.closeTime ? Date.parse(listing.closeTime) - 60_000 : Infinity),
-    ).toISOString(),
+    expiresAt: new Date(Math.min(now.getTime() + QUOTE_TTL_MS, closeCap)).toISOString(),
+    funding: "swap",
     order,
     exchange,
     orderHash: hash,
@@ -149,7 +185,6 @@ export async function prepareOrder(account: string, q: QuoteInput, deps: EngineD
       deadline: quote.quote.deadline ?? quote.quoteRequest.deadline,
       correlationId: quote.correlationId,
     },
-    events: [],
   };
   rec = transition(rec, "AWAITING_SIGNATURE", `Quote: ${quote.quote.amountInFormatted} NEAR → ≥ ${minUsdc.toFixed(2)} USDC on Polygon; order ${shares} ${outcome} @ ≤ ${alloc.limitPrice}`, now);
   saveOrder(rec);
@@ -173,6 +208,11 @@ export async function recordSignature(id: string, mpcResult: unknown, signTxHash
     saveOrder(bad);
     throw new QuoteError("signature does not match the account's derived address", 422);
   }
+  if (o.funding === "balance") {
+    // Already funded: go straight to the balance check / dry-run step, in the same request.
+    saveOrder(transition({ ...o, signature, signTxHash }, "SWAP_SETTLED", "Order signed by NEAR account via Chain Signatures; paid from your balance", deps.now()));
+    return (await advance(id, deps)) ?? getOrder(id)!;
+  }
   const next = transition({ ...o, signature, signTxHash }, "AWAITING_DEPOSIT_TX", "Order signed by NEAR account via Chain Signatures", deps.now());
   saveOrder(next);
   return next;
@@ -181,6 +221,7 @@ export async function recordSignature(id: string, mpcResult: unknown, signTxHash
 /** Step 2 done: user sent the NEAR deposit. */
 export async function recordDeposit(id: string, txHash: string, deps: EngineDeps = defaultDeps) {
   const o = load(id, "AWAITING_DEPOSIT_TX");
+  if (!o.swap) throw new QuoteError("this order is paid from your balance; there is no deposit", 409);
   await deps.submitDeposit(o.swap.depositAddress, txHash);
   const next = transition({ ...o, swap: { ...o.swap, depositTxHash: txHash } }, "AWAITING_SWAP", `Deposit sent (${txHash.slice(0, 10)}…)`, deps.now());
   saveOrder(next);
@@ -202,7 +243,7 @@ export async function advance(id: string, deps: EngineDeps = defaultDeps): Promi
       case "AWAITING_DEPOSIT_TX": {
         if (now > new Date(o.expiresAt)) {
           // If a deposit was sent but never reported, 1Click still tracks it: hand over to the swap step.
-          const st = await deps.getStatus(o.swap.depositAddress).catch(() => null);
+          const st = o.swap ? await deps.getStatus(o.swap.depositAddress).catch(() => null) : null;
           next =
             st && st.status !== "PENDING_DEPOSIT"
               ? transition(o, "AWAITING_SWAP", `Deposit detected by 1Click (${st.status})`, now)
@@ -211,6 +252,7 @@ export async function advance(id: string, deps: EngineDeps = defaultDeps): Promi
         break;
       }
       case "AWAITING_SWAP": {
+        if (!o.swap) break;
         const st = await deps.getStatus(o.swap.depositAddress);
         if (st.status !== o.swap.status) next = { ...o, swap: { ...o.swap, status: st.status } };
         if (st.status === "SUCCESS")

@@ -47,7 +47,13 @@ export interface OrderRecord {
   signature?: `0x${string}`;
   /** When an unfunded order is abandoned: min(quote TTL, 1 minute before the market closes). */
   expiresAt: string;
-  swap: {
+  /**
+   * "balance": paid from USDC already at the user's Polygon address (added ahead of time via Funds); the
+   * trade is sign-and-done. "swap": NEAR → USDC through 1Click at trade time. Missing = "swap" (older rows).
+   */
+  funding?: "balance" | "swap";
+  /** Present only for funding === "swap". */
+  swap?: {
     depositAddress: string;
     amountIn: string; // yoctoNEAR
     amountInFormatted: string;

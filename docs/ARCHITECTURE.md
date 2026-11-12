@@ -123,6 +123,25 @@ clicks.
   concurrent runs. Transient RPC or 1Click errors are retried on the next tick.
 - It survives restarts because all state is in the table. Hackathon scale: one Node process, no broker.
 
+### Trading balance (`src/lib/funding`)
+
+Swapping at trade time takes ~100 s, long enough for a 15-minute market to move. So money is moved to each
+venue's chain **ahead of time**, and trades are paid from what is already there.
+
+- **Funding targets** (`targets.ts`): per chain, the collateral token, the gas token and the address derived
+  from the NEAR account. Today: Polygon (USDC + POL) for Polymarket. A new on-chain venue (Base for Limitless,
+  Solana for DFlow, HyperCore) is a new target, not a new flow.
+- **Add funds** (`engine.ts`): 1Click quotes NEAR → collateral, plus NEAR → gas when the address holds less
+  than ~3 transfers' worth. **One** wrap.near transaction funds both deposit addresses
+  (`wrapAndDepositManyTx`). The worker tracks both legs: DONE when the collateral lands, FAILED (refund to
+  the NEAR account) if it doesn't, EXPIRED if no deposit within 20 minutes. Cap: `MAX_FUND_USD` ($10).
+- **Balance-first orders** (`orders/engine.ts`): if the USDC at the address covers the route's cost, the order
+  is `funding: "balance"`: no 1Click quote, no deposit. Sign → `SWAP_SETTLED` → `ORDER_DRY_RUN` in the same
+  request. The unsigned order expires after 2 minutes (prices move). Otherwise it falls back to the swap flow.
+
+Regulated account venues (Kalshi, Polymarket US) cannot be pre-funded this way: they hold money in an account
+in the user's name and require deposits from the user's own accounts.
+
 ### Withdraw (`src/lib/withdraw`)
 
 The way back: USDC at the user's Polygon address → NEAR in the user's NEAR account.

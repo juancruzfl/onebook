@@ -6,6 +6,7 @@ import { Countdown } from "@/components/Countdown";
 import { VenueLogo } from "@/components/Logos";
 import { LiveTrade } from "@/components/LiveTrade";
 import { OrderFlow } from "@/components/OrderFlow";
+import { refreshFunds, useFunds, usdcOf } from "@/components/useFunds";
 import { useWallet } from "@/components/WalletProvider";
 import type { MarketView } from "@/lib/market-view";
 import { diffLines, fmtCents, fmtUsd, marketCopy, TIER_COPY, VENUE } from "@/lib/present";
@@ -35,6 +36,7 @@ export function TradePanel({
   const needsConsent = hasExtras && !hasCore;
   const extras = hasCore ? market.listings.filter((l) => !market.core.includes(l)) : [];
   const { accountId, connect } = useWallet();
+  const funds = useFunds(accountId);
 
   const [amount, setAmount] = useState("5");
   const [executing, setExecuting] = useState(false);
@@ -104,6 +106,8 @@ export function TradePanel({
   const unspent = shown ? Math.max(0, budget - shown.totalCost) : 0;
   /** Execution goes to Polymarket only (the venue we can sign for); other venues are quote-only. */
   const canExecute = market.listings.some((l) => l.venue === "polymarket");
+  /** Covered by the trading balance → sign-and-done; otherwise NEAR is swapped at trade time (~2 min). */
+  const fromBalance = budget > 0 && usdcOf(funds) >= budget;
 
 
   return (
@@ -249,7 +253,8 @@ export function TradePanel({
             side={side}
             budgetUsd={budget}
             allowNearEquivalent={accepted}
-            onClose={() => setExecuting(false)}
+            fromBalance={fromBalance}
+            onClose={() => (setExecuting(false), refreshFunds())}
           />
         ) : !accountId ? (
           <button className={`cta ${side}`} onClick={connect}>
@@ -261,13 +266,15 @@ export function TradePanel({
             disabled={!canExecute || !(budget > 0) || budget > MAX_EXEC_USD}
             onClick={() => setExecuting(true)}
           >
-            Buy {label} · {fmtUsd(budget || 0)} on Polymarket
+            Buy {label} · {fmtUsd(budget || 0)} on Polymarket{fromBalance ? " · instant" : ""}
           </button>
         )}
         <p className="muted tiny center">
           {budget > MAX_EXEC_USD
             ? `Demo limit: execution is capped at $${MAX_EXEC_USD}. Quotes work for any size.`
-            : "Execution uses Polymarket only, paid in NEAR via NEAR Intents and signed by your NEAR account via Chain Signatures. The Polymarket order is a dry run; the route above is a quote."}
+            : fromBalance
+              ? `Paid from your trading balance (${fmtUsd(usdcOf(funds))} USDC): one signature, no swap. Polymarket only; the order is a dry run.`
+              : `Not enough trading balance${funds ? ` (${fmtUsd(usdcOf(funds))})` : ""}: this pays in NEAR via NEAR Intents at trade time (~2 min). Add funds under Balance for instant trades. The order is a dry run.`}
         </p>
 
         <details className="rules">

@@ -978,3 +978,11 @@ code {
   cursor: pointer;
   font-size: 0.8rem;
 }
+.funds-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}

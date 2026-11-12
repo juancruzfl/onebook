@@ -21,8 +21,15 @@ const plan = (cost: number, limit: number): RoutePlan => ({
   allocations: [{ venue: "polymarket", marketId: "0xabc", shares: cost / limit, cost, fees: 0, avgPrice: limit, limitPrice: limit }],
 });
 
-function deps(over: Partial<EngineDeps> & { status?: SwapStatus; balance?: bigint; minOut?: string; clock?: { t: number } } = {}): EngineDeps {
+/**
+ * `startBalance`: USDC already at the Polygon address when the order is prepared (0 = pay via swap).
+ * `balance`: what the address holds afterwards (after the swap delivered).
+ */
+function deps(
+  over: Partial<EngineDeps> & { status?: SwapStatus; balance?: bigint; startBalance?: bigint; minOut?: string; clock?: { t: number } } = {},
+): EngineDeps {
   const clock = over.clock ?? { t: Date.parse("2026-11-12T04:00:00Z") };
+  let reads = 0;
   return {
     computeQuote: async () => ({ plan: plan(5, 0.5), listings: [listing] }),
     deriveEvmAddress: async () => ({ address: user.address }),
@@ -38,7 +45,7 @@ function deps(over: Partial<EngineDeps> & { status?: SwapStatus; balance?: bigin
       }) as QuoteResponse,
     getStatus: async () => ({ status: over.status ?? "SUCCESS" }),
     submitDeposit: async () => undefined,
-    usdcBalance: async () => over.balance ?? BigInt(5_050_000),
+    usdcBalance: async () => (reads++ === 0 ? (over.startBalance ?? BigInt(0)) : (over.balance ?? BigInt(5_050_000))),
     now: () => new Date(clock.t),
     ...over,
   };
@@ -61,8 +68,9 @@ describe("order engine", () => {
     expect(order.shares).toBe(10); // min 5.00 USDC / 0.5
     expect(order.usdcAmount).toBe("5000000");
     expect(nearTxs.sign.receiverId).toBe("v1.signer");
-    expect(nearTxs.deposit.receiverId).toBe("wrap.near");
-    expect(nearTxs.deposit.actions.map((a) => a.params.methodName)).toEqual(["storage_deposit", "near_deposit", "ft_transfer"]);
+    expect(order.funding).toBe("swap");
+    expect(nearTxs.deposit!.receiverId).toBe("wrap.near");
+    expect(nearTxs.deposit!.actions.map((a) => a.params.methodName)).toEqual(["storage_deposit", "near_deposit", "ft_transfer"]);
 
     await recordSignature(order.id, await mpcSign(order.orderHash), "signTx", d);
     expect(getOrder(order.id)!.state).toBe("AWAITING_DEPOSIT_TX");
@@ -128,6 +136,35 @@ describe("order expiry", () => {
     const { order } = await prepareOrder("alice.near", input, d);
     expect(order.expiresAt).toBe("2026-11-12T04:14:00.000Z");
     clock.t = Date.parse("2026-11-12T04:14:30Z");
+    await advance(order.id, d);
+    expect(getOrder(order.id)!.state).toBe("EXPIRED");
+  });
+});
+
+describe("paid from the trading balance", () => {
+  it("skips the swap: one signature and the order is done", async () => {
+    const d = deps({ startBalance: BigInt(5_120_000), balance: BigInt(5_120_000) });
+    const { order, nearTxs } = await prepareOrder("alice.near", input, d);
+    expect(order.funding).toBe("balance");
+    expect(order.swap).toBeUndefined();
+    expect(nearTxs.deposit).toBeUndefined();
+    expect(order.shares).toBe(10); // $5 / 0.5
+    const done = await recordSignature(order.id, await mpcSign(order.orderHash), "signTx", d);
+    expect(done.state).toBe("ORDER_DRY_RUN");
+    expect(done.events.map((e) => e.state)).toEqual(["AWAITING_SIGNATURE", "SWAP_SETTLED", "ORDER_DRY_RUN"]);
+    expect(done.events.at(-1)!.note).toMatch(/funded/);
+    await expect(recordDeposit(order.id, "x", d)).rejects.toThrow();
+  });
+
+  it("falls back to a swap when the balance is short, and expires unsigned balance orders quickly", async () => {
+    const short = await prepareOrder("alice.near", input, deps({ startBalance: BigInt(4_000_000) }));
+    expect(short.order.funding).toBe("swap");
+
+    const clock = { t: Date.parse("2026-11-12T04:00:00Z") };
+    const d = deps({ clock, startBalance: BigInt(9_000_000) });
+    const { order } = await prepareOrder("alice.near", input, d);
+    expect(order.expiresAt).toBe("2026-11-12T04:02:00.000Z");
+    clock.t += 3 * 60 * 1000;
     await advance(order.id, d);
     expect(getOrder(order.id)!.state).toBe("EXPIRED");
   });

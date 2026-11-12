@@ -1,73 +1,72 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { refreshFunds, useFunds } from "@/components/useFunds";
 import { useWallet } from "@/components/WalletProvider";
+import type { Funding, FundingState } from "@/lib/funding/engine";
 import type { Withdrawal, WithdrawState } from "@/lib/withdraw/engine";
 
-interface FundsInfo {
-  evmAddress: string;
-  usdc: string;
-  pol: string;
-  needsGas: boolean;
-}
+type NearTx = { receiverId: string; actions: unknown[] };
 
-const FINAL: WithdrawState[] = ["DONE", "FAILED", "ERROR"];
+const W_FINAL: WithdrawState[] = ["DONE", "FAILED", "ERROR"];
+const F_FINAL: FundingState[] = ["DONE", "FAILED", "EXPIRED"];
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const usd = (units: string) => `$${(Number(units) / 1e6).toFixed(2)}`;
+const AMOUNTS = [5, 10];
 
-const STEPS: { label: string; doneAt: WithdrawState[] }[] = [
+const W_STEPS: { label: string; doneAt: WithdrawState[] }[] = [
   { label: "Add gas to your Polygon address (first time only)", doneAt: ["READY_TO_SIGN", "AWAITING_SIGNATURE", "AWAITING_SWAP", "DONE"] },
   { label: "Sign the withdrawal with your NEAR account", doneAt: ["AWAITING_SWAP", "DONE"] },
   { label: "Swap USDC to NEAR (NEAR Intents)", doneAt: ["DONE"] },
 ];
-const ACTIVE: Partial<Record<WithdrawState, number>> = { NEEDS_GAS: 0, AWAITING_GAS: 0, READY_TO_SIGN: 1, AWAITING_SIGNATURE: 1, AWAITING_SWAP: 2 };
+const W_ACTIVE: Partial<Record<WithdrawState, number>> = { NEEDS_GAS: 0, AWAITING_GAS: 0, READY_TO_SIGN: 1, AWAITING_SIGNATURE: 1, AWAITING_SWAP: 2 };
 
-/** "Funds" in the nav: what sits at the user's Polygon address, and a withdraw-to-NEAR flow. */
+async function api(url: string, body?: unknown) {
+  const res = await fetch(url, body !== undefined ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+  return json;
+}
+
+/**
+ * "Balance" in the nav: the trading balance at the user's Polygon address (Chain Signatures).
+ * Add funds ahead of time (NEAR → USDC + gas via NEAR Intents, one approval) so trades are sign-and-done;
+ * withdraw sends it back to the NEAR account.
+ */
 export function Funds() {
   const { accountId, signAndSend } = useWallet();
+  const info = useFunds(accountId);
   const [open, setOpen] = useState(false);
-  const [info, setInfo] = useState<FundsInfo | null>(null);
+  const [f, setF] = useState<Funding | null>(null);
   const [w, setW] = useState<Withdrawal | null>(null);
-  const [gasTx, setGasTx] = useState<{ receiverId: string; actions: unknown[] } | null>(null);
+  const [gasTx, setGasTx] = useState<NearTx | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const api = useCallback(async (url: string, body?: unknown) => {
-    const res = await fetch(url, body !== undefined ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-    return json;
-  }, []);
-
-  const refresh = useCallback(async () => {
-    if (!accountId) return setInfo(null);
-    try {
-      setInfo(await api(`/api/funds?account=${encodeURIComponent(accountId)}`));
-    } catch {
-      /* keep last */
-    }
-  }, [accountId, api]);
-
+  const poll = useCallback(
+    <T extends { id: string; state: string }>(item: T | null, url: (id: string) => string, key: string, done: string[], set: (x: T) => void) => {
+      if (!item || done.includes(item.state)) return;
+      const t = setInterval(async () => {
+        try {
+          const next = (await api(url(item.id)))[key] as T;
+          set(next);
+          if (done.includes(next.state)) refreshFunds();
+        } catch {
+          /* retry */
+        }
+      }, 2000);
+      return () => clearInterval(t);
+    },
+    [],
+  );
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 30_000);
-    return () => clearInterval(t);
-  }, [refresh]);
-
-  // Poll an active withdrawal.
+    if (f?.state === "AWAITING_DEPOSIT") return;
+    return poll(f, (id) => `/api/funding/${id}`, "funding", F_FINAL, setF);
+  }, [f, poll]);
   useEffect(() => {
-    if (!w || FINAL.includes(w.state) || w.state === "NEEDS_GAS" || w.state === "READY_TO_SIGN") return;
-    const t = setInterval(async () => {
-      try {
-        const next = (await api(`/api/withdrawals/${w.id}`)).withdrawal as Withdrawal;
-        setW(next);
-        if (FINAL.includes(next.state)) refresh();
-      } catch {
-        /* retry */
-      }
-    }, 3000);
-    return () => clearInterval(t);
-  }, [w, api, refresh]);
+    if (w && (w.state === "NEEDS_GAS" || w.state === "READY_TO_SIGN")) return;
+    return poll(w, (id) => `/api/withdrawals/${id}`, "withdrawal", W_FINAL, setW);
+  }, [w, poll]);
 
   if (!accountId) return null;
 
@@ -83,7 +82,17 @@ export function Funds() {
     }
   }
 
-  const start = () =>
+  const addFunds = (amount: number) =>
+    run("Getting a quote…", async () => {
+      const r = await api("/api/funding", { account: accountId, target: "polygon", usd: amount });
+      setF(r.funding);
+      setBusy("Approve the deposit in your wallet…");
+      const { txHash } = await signAndSend(r.tx);
+      if (!txHash) throw new Error("wallet did not return a transaction hash");
+      setF((await api(`/api/funding/${r.funding.id}/deposited`, { txHash })).funding);
+    });
+
+  const startWithdraw = () =>
     run("Checking your funds…", async () => {
       const r = await api("/api/withdrawals", { account: accountId });
       setW(r.withdrawal);
@@ -110,20 +119,23 @@ export function Funds() {
     });
 
   const hasUsdc = info && BigInt(info.usdc) > BigInt(0);
-  const current = w ? ACTIVE[w.state] : undefined;
-  const failed = w && (w.state === "FAILED" || w.state === "ERROR");
+  const fundingActive = f && !F_FINAL.includes(f.state);
+  const withdrawActive = w && !W_FINAL.includes(w.state);
+  const wCurrent = w ? W_ACTIVE[w.state] : undefined;
+  const wFailed = w && (w.state === "FAILED" || w.state === "ERROR");
+  const amounts = AMOUNTS.filter((a) => a <= (info?.maxFundUsd ?? 10));
 
   return (
     <>
-      <button className="chip-btn" onClick={() => (setOpen(true), refresh())} title="Funds at your Polygon address">
-        Funds {info ? usd(info.usdc) : ""}
+      <button className="chip-btn" onClick={() => (setOpen(true), refreshFunds())} title="Trading balance at your Polygon address">
+        Balance {info ? usd(info.usdc) : ""}
       </button>
       {open && (
         <div className="sheet-backdrop" onClick={() => !busy && setOpen(false)}>
-          <aside className="sheet" role="dialog" aria-label="Your funds" onClick={(e) => e.stopPropagation()}>
+          <aside className="sheet" role="dialog" aria-label="Your trading balance" onClick={(e) => e.stopPropagation()}>
             <header className="sheet-head">
               <div className="mcard-title">
-                <h3>Your funds</h3>
+                <h3>Trading balance</h3>
                 {info && (
                   <span className="muted small">
                     Polygon address{" "}
@@ -149,83 +161,107 @@ export function Funds() {
                 <strong>{info ? (Number(info.pol) / 1e18).toFixed(4) : "…"}</strong>
               </div>
               <p className="muted tiny">
-                Unspent USDC from orders stays here, at an address only your NEAR account can sign for. Withdraw sends it
-                back to {accountId} as NEAR.
+                Trades on Polymarket are paid from this balance: one signature, no swap, so you trade at the price you
+                see. Add funds ahead of time; they stay at an address only your NEAR account can sign for.
               </p>
             </section>
 
-            {w && (
-              <ol className="flow-steps">
-                {STEPS.map((s, i) => {
-                  const done = s.doneAt.includes(w.state);
-                  return (
-                    <li key={s.label} className={done ? "done" : current === i ? (failed ? "fail" : "active") : ""}>
-                      <span className="flow-dot" />
-                      <span>{s.label}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-
-            {!w || FINAL.includes(w.state) ? (
-              <button className="cta yes" onClick={start} disabled={!hasUsdc || !!busy}>
-                {busy ?? (hasUsdc ? `Withdraw ${usd(info!.usdc)} to NEAR` : "Nothing to withdraw")}
-              </button>
-            ) : w.state === "NEEDS_GAS" ? (
-              <>
-                <p className="muted small">
-                  Your Polygon address needs a little POL to pay the network fee. Deposit {w.gas?.amountInFormatted} NEAR
-                  (about $0.10); NEAR Intents delivers ~{Number(w.gas?.amountOutFormatted ?? 0).toFixed(2)} POL, enough for many
-                  withdrawals.
-                </p>
-                <button className="cta yes" onClick={addGas} disabled={!!busy}>
-                  {busy ?? `Add gas · ${w.gas?.amountInFormatted} NEAR`}
-                </button>
-              </>
-            ) : w.state === "READY_TO_SIGN" || w.state === "AWAITING_SIGNATURE" ? (
-              <>
-                <p className="muted small">
-                  Your NEAR account signs a USDC transfer from your Polygon address to NEAR Intents, which swaps it to NEAR
-                  and sends it to {accountId}. If the swap fails, the USDC comes back to your Polygon address.
-                </p>
-                <button className="cta yes" onClick={signWithdrawal} disabled={!!busy}>
-                  {busy ?? "Sign withdrawal"}
-                </button>
-              </>
-            ) : (
-              <p className="muted small">{w.state === "AWAITING_GAS" ? "Waiting for gas to arrive (~30 s)…" : "Swapping to NEAR (~30-60 s)…"}</p>
-            )}
-            {busy && w && <p className="muted small">{busy}</p>}
-            {error && <p className="err-text small">{error}</p>}
-
-            {w && w.events.length > 0 && (
-              <ul className="flow-log">
-                {w.events
-                  .slice()
-                  .reverse()
-                  .map((e) => (
-                    <li key={e.at + e.state}>
-                      <span className="muted tiny">{new Date(e.at).toLocaleTimeString()}</span> {e.note}
-                    </li>
-                  ))}
-              </ul>
-            )}
-            {w?.tx?.polygonTxHash && (
-              <p className="tiny">
-                <a href={`https://polygonscan.com/tx/${w.tx.polygonTxHash}`} target="_blank" rel="noreferrer">
-                  Polygon transfer ↗
-                </a>
-                {w.swap && (
+            {/* Add funds */}
+            {!withdrawActive && (
+              <section className="funds-section">
+                <strong className="small">Add funds</strong>
+                {fundingActive ? (
                   <>
-                    {" · "}
-                    <a href={`https://explorer.near-intents.org/?depositAddress=${w.swap.depositAddress}`} target="_blank" rel="noreferrer">
-                      Track swap ↗
-                    </a>
+                    <p className="muted small">{f!.events.at(-1)?.note}</p>
+                    <p className="muted small">
+                      {f!.state === "AWAITING_DEPOSIT" ? "Waiting for your wallet…" : "NEAR Intents is delivering it (~1-2 min)…"}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {f && <p className={f.state === "DONE" ? "win small" : "err-text small"}>{f.events.at(-1)?.note}</p>}
+                    <div className="chips">
+                      {amounts.map((a) => (
+                        <button key={a} className="chip-btn" onClick={() => addFunds(a)} disabled={!!busy}>
+                          + ${a}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="muted tiny">
+                      Paid in NEAR in one wallet approval. NEAR Intents swaps it to USDC on Polygon
+                      {info?.needsGas ? " and adds a little POL for network fees" : ""}. Max ${info?.maxFundUsd ?? 10} per
+                      deposit while this is a demo.
+                    </p>
                   </>
                 )}
-              </p>
+              </section>
             )}
+
+            {/* Withdraw */}
+            {!fundingActive && (
+              <section className="funds-section">
+                <strong className="small">Withdraw to NEAR</strong>
+                {w && (
+                  <ol className="flow-steps">
+                    {W_STEPS.map((s, i) => (
+                      <li key={s.label} className={s.doneAt.includes(w.state) ? "done" : wCurrent === i ? (wFailed ? "fail" : "active") : ""}>
+                        <span className="flow-dot" />
+                        <span>{s.label}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {!w || W_FINAL.includes(w.state) ? (
+                  <button className="chip-btn" onClick={startWithdraw} disabled={!hasUsdc || !!busy}>
+                    {hasUsdc ? `Withdraw ${usd(info!.usdc)} to NEAR` : "Nothing to withdraw"}
+                  </button>
+                ) : w.state === "NEEDS_GAS" ? (
+                  <>
+                    <p className="muted small">
+                      Your Polygon address needs a little POL for the network fee: {w.gas?.amountInFormatted} NEAR (about
+                      $0.10) → ~{Number(w.gas?.amountOutFormatted ?? 0).toFixed(2)} POL, enough for many transactions.
+                    </p>
+                    <button className="cta yes" onClick={addGas} disabled={!!busy}>
+                      {busy ?? `Add gas · ${w.gas?.amountInFormatted} NEAR`}
+                    </button>
+                  </>
+                ) : w.state === "READY_TO_SIGN" || w.state === "AWAITING_SIGNATURE" ? (
+                  <>
+                    <p className="muted small">
+                      Your NEAR account signs a USDC transfer to NEAR Intents, which swaps it to NEAR and sends it to{" "}
+                      {accountId}. If the swap fails, the USDC comes back to your Polygon address.
+                    </p>
+                    <button className="cta yes" onClick={signWithdrawal} disabled={!!busy}>
+                      {busy ?? "Sign withdrawal"}
+                    </button>
+                  </>
+                ) : (
+                  <p className="muted small">{w.state === "AWAITING_GAS" ? "Waiting for gas to arrive (~30-80 s)…" : "Swapping to NEAR (~1-2 min)…"}</p>
+                )}
+                {w && w.events.length > 0 && (
+                  <ul className="flow-log">
+                    {w.events
+                      .slice()
+                      .reverse()
+                      .map((e) => (
+                        <li key={e.at + e.state}>
+                          <span className="muted tiny">{new Date(e.at).toLocaleTimeString()}</span> {e.note}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+                {w?.tx?.polygonTxHash && (
+                  <p className="tiny">
+                    <a href={`https://polygonscan.com/tx/${w.tx.polygonTxHash}`} target="_blank" rel="noreferrer">
+                      Polygon transfer ↗
+                    </a>
+                  </p>
+                )}
+              </section>
+            )}
+
+            {busy && <p className="muted small">{busy}</p>}
+            {error && <p className="err-text small">{error}</p>}
           </aside>
         </div>
       )}
