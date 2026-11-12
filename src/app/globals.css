@@ -174,10 +174,9 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-brand), var(--font-geist-sans), sans-serif;
   font-weight: 700;
-  font-size: 1.2rem;
-  letter-spacing: -0.03em;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
   flex: none;
 }
 .brand:hover {

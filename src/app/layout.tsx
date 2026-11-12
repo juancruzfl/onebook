@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Sora } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Footer } from "@/components/Footer";
 import { WalletProvider } from "@/components/WalletProvider";
@@ -14,13 +14,6 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-/** Wordmark only (see .brand in globals.css). */
-const brand = Sora({
-  variable: "--font-brand",
-  subsets: ["latin"],
-  weight: ["700"],
-});
-
 export const metadata: Metadata = {
   title: "onebook",
   description: "Prediction-market router that matches markets on how they pay out and settles through NEAR Intents.",
@@ -33,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} ${brand.variable}`}>
+      <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <WalletProvider>
           <div className="page">
             <div className="page-main">{children}</div>
