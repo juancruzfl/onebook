@@ -9,7 +9,7 @@ import type { Listing, VenueId } from "@/lib/venues/types";
 export const ASSET: Record<string, { name: string; symbol: string; color: string; logo?: string }> = {
   BTC: { name: "Bitcoin", symbol: "₿", color: "#f7931a", logo: "/logos/btc.svg" },
   ETH: { name: "Ethereum", symbol: "Ξ", color: "#627eea", logo: "/logos/eth.svg" },
-  SOL: { name: "Solana", symbol: "◎", color: "#14b8a6", logo: "/logos/sol.svg" },
+  SOL: { name: "Solana", symbol: "◎", color: "#9945ff", logo: "/logos/sol.svg" },
 };
 export const assetInfo = (a: string) => ASSET[a] ?? { name: a, symbol: a.slice(0, 1), color: "#888" };
 
