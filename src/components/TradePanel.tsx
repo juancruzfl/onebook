@@ -5,6 +5,7 @@ import { AssetIcon, VenueDots } from "@/components/MarketCard";
 import { Countdown } from "@/components/Countdown";
 import { VenueLogo } from "@/components/Logos";
 import { LiveTrade } from "@/components/LiveTrade";
+import { isLiveVenue } from "@/lib/live/orders";
 import { OrderFlow } from "@/components/OrderFlow";
 import { refreshFunds, useFunds, usdcOf } from "@/components/useFunds";
 import { useWallet } from "@/components/WalletProvider";
@@ -47,6 +48,11 @@ export function TradePanel({
 
   const budget = Number(amount);
   const canQuote = budget > 0 && budget <= 100_000 && (!needsConsent || accepted);
+  /** Live orders only ever use the card's regulated venues, independent of the consent toggle above. */
+  const liveMarkets = useMemo(
+    () => market.listings.filter((l) => isLiveVenue(l.venue)).map((l) => ({ venue: l.venue, marketId: l.marketId })),
+    [market],
+  );
   const quoted = useMemo(
     () => (hasCore && !accepted ? market.core : market.listings).map((l) => ({ venue: l.venue, marketId: l.marketId })),
     [market, hasCore, accepted],
@@ -245,7 +251,7 @@ export function TradePanel({
           )}
         </section>
 
-        <LiveTrade markets={quoted} side={side} budgetUsd={budget} />
+        <LiveTrade markets={liveMarkets} side={side} budgetUsd={budget} />
 
         {executing && shown ? (
           <OrderFlow
