@@ -54,7 +54,7 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Spec extractors: 15m up/down (BTC/ETH/SOL), Kalshi daily thresholds, HIP-4 `priceBinary` | ✅ done, unit-tested on real responses |
 | Matcher (equivalent / near-equivalent / related) | ✅ done, unit-tested |
 | Router quote (split across books, fees, minimums) | ✅ done, unit-tested |
-| Web UI + `/api/markets` + `/api/quote` | ✅ done |
+| Web UI: market cards, trade panel with live split quotes, light/dark, mobile bottom sheet | ✅ done |
 | NEAR Intents (1Click) swap to venue collateral | ⏳ next |
 | Chain Signatures: derive the user's EVM address from their NEAR account (`/api/near/address`) | ✅ done, checked against `v1.signer` |
 | Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
@@ -72,16 +72,20 @@ npm run dev            # http://localhost:3000
 npm test               # unit tests for extractors, matcher, router
 ```
 
-1. Open http://localhost:3000. You should see one card per matched group, e.g. *"BTC · settles
-   Nov 11, 6:30 PM EST"* with an orange **Near-equivalent** badge, plus the exact differences
-   (`end.oracle: chainlink-twap-60s ≠ cf-benchmarks-rti`, …). The chips at the top show how many
-   markets each venue returned.
-2. Click **Quote a route**, pick a side and a budget, and click **Get route**. The button stays
-   disabled until you tick *"I accept the differences above"*, because the pair is only near-equivalent.
-3. You get a table with shares, cost, average price and limit price for each venue, plus how much more
-   payout the split earns than the best single venue. Nothing is signed or sent.
-4. Tick **show related (non-routable) groups** to see pairs onebook refuses to route and the
-   differences that block them.
+1. Open http://localhost:3000. Each card is one bet that onebook found on more than one venue, e.g.
+   **Bitcoin Up or Down, 7:45 PM – 8:00 PM**. Each card shows the implied chance, the cheapest **Up** and
+   **Down** prices across venues (read from the live order books), a countdown, the venues it trades on,
+   and a badge saying how well they match. "Different price sources" is the near-equivalent tier.
+2. Click **Up** or **Down**. A trade panel opens: a side panel on desktop, a bottom sheet on phones.
+   For near-equivalent markets it explains the difference in plain words ("Polymarket uses Chainlink 60s
+   TWAP, Kalshi uses CF Benchmarks index") and shows no route until you tick *"I understand and want to
+   combine these venues"*.
+3. Enter an amount, or use the +$5 / +$25 / +$100 chips. The panel re-quotes against live order books
+   and shows the average price, shares, **To win**, how the order splits across venues, and how much more
+   it pays than the best single venue. The buy button is disabled because execution is not enabled.
+   *How this market settles* shows each venue's own rules text.
+4. Tick **Show non-combinable** to also see markets onebook refuses to combine (badge
+   "Not the same bet"). Their buttons are disabled.
 5. Open http://localhost:3000/sign-test, click **Connect wallet**, then **Sign a test order**. Your wallet
    asks you to approve one transaction to `v1.signer`: 1 yoctoNEAR attached, up to 300 TGas prepaid,
    and unused gas refunded. After it lands, the page shows **✓ Valid: the order was signed by your

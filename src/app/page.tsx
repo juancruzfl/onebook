@@ -1,277 +1,160 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { Diff, Tier } from "@/lib/matcher";
-import type { RoutePlan } from "@/lib/router";
-import type { Listing, Side } from "@/lib/venues/types";
-import type { VenueStatus } from "@/lib/venues";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Logo } from "@/components/Logo";
+import { VenueLogo } from "@/components/Logos";
+import { MarketCard } from "@/components/MarketCard";
+import { TradePanel } from "@/components/TradePanel";
 import { WalletButton } from "@/components/WalletButton";
+import { toMarketView, type GroupDto, type MarketView } from "@/lib/market-view";
+import { marketCopy, VENUE } from "@/lib/present";
+import type { Side } from "@/lib/venues/types";
+import type { VenueStatus } from "@/lib/venues";
 
-interface Pair {
-  a: Listing;
-  b: Listing;
-  tier: Tier;
-  diffs: Diff[];
-}
-interface Group {
-  key: string;
-  listings: Listing[];
-  pairs: Pair[];
-  bestTier: Tier;
-}
 interface MarketsResponse {
   fetchedAt: string;
   status: VenueStatus[];
-  groups: Group[];
-  unextracted: { venue: string; marketId: string; title: string; error?: string }[];
+  groups: GroupDto[];
 }
 
-const TIER_LABEL: Record<Tier, string> = {
-  equivalent: "Equivalent",
-  "near-equivalent": "Near-equivalent",
-  related: "Related · not routable",
-};
+const TABS = [
+  { id: "all", label: "All" },
+  { id: "BTC", label: "Bitcoin" },
+  { id: "ETH", label: "Ethereum" },
+  { id: "SOL", label: "Solana" },
+] as const;
 
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
-const pct = (n?: number) => (n === undefined || Number.isNaN(n) ? "–" : `${(n * 100).toFixed(1)}¢`);
-
-/** Bucket keys look like "price:BTC:2026-11-11T23:15:00.000Z" (the ISO time contains colons). */
-function groupTitle(key: string) {
-  const parts = key.split(":");
-  return { asset: parts[1], at: parts.slice(2).join(":") };
-}
+const REFRESH_MS = 20_000;
 
 export default function Home() {
   const [data, setData] = useState<MarketsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [showRelated, setShowRelated] = useState(false);
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("all");
+  const [showAll, setShowAll] = useState(false);
+  const [query, setQuery] = useState("");
+  const [trade, setTrade] = useState<{ key: string; side: Side } | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const res = await fetch("/api/markets", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
+      setError(null);
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     load();
+    const t = setInterval(load, REFRESH_MS);
+    return () => clearInterval(t);
   }, [load]);
 
-  const groups = (data?.groups ?? []).filter((g) => showRelated || g.bestTier !== "related");
+  const markets = useMemo(() => {
+    const views = (data?.groups ?? []).map(toMarketView).filter((m): m is MarketView => m !== null);
+    return views
+      .filter((m) => new Date(m.closeTime).getTime() > Date.now())
+      .filter((m) => showAll || m.tier !== "related")
+      .filter((m) => tab === "all" || m.asset === tab)
+      .filter((m) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        const c = marketCopy(m.spec);
+        return `${c.title} ${c.subtitle} ${m.asset} ${m.listings.map((l) => l.venue).join(" ")}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => a.closeTime.localeCompare(b.closeTime) || a.asset.localeCompare(b.asset));
+  }, [data, tab, showAll, query]);
+
+  const active = trade ? markets.find((m) => m.key === trade.key) : undefined;
 
   return (
-    <main className="wrap">
-      <header className="top">
-        <div>
-          <h1>onebook</h1>
-          <p className="muted">
-            One order book across prediction markets. Markets are matched on <strong>how they pay out</strong>, not on
-            their title.
-          </p>
-        </div>
-        <div className="row">
-          <button onClick={load} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+    <div className="app">
+      <nav className="nav">
+        <div className="nav-inner">
+          <Logo />
+          <label className="search">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+              <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path d="M20 20l-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <input
+              type="search"
+              placeholder="Search markets"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search markets"
+            />
+          </label>
           <WalletButton />
         </div>
-      </header>
-
-      {data && (
-        <section className="status">
-          {data.status.map((s) => (
-            <span key={s.venue} className={`chip ${s.ok ? "ok" : "err"}`} title={s.error}>
-              {s.venue}: {s.ok ? `${s.count} markets` : "unavailable"}
-            </span>
-          ))}
-          <label className="toggle">
-            <input type="checkbox" checked={showRelated} onChange={(e) => setShowRelated(e.target.checked)} /> show
-            related (non-routable) groups
+        <div className="nav-inner nav-tabs">
+          <div className="tabs" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`tab ${tab === t.id ? "active" : ""}`}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+            <span>Show non-combinable</span>
           </label>
-        </section>
-      )}
+        </div>
+      </nav>
 
-      {error && <p className="err-text">Failed to load markets: {error}</p>}
-      {data && groups.length === 0 && <p className="muted">No cross-venue matches right now. Try refreshing.</p>}
+      <main className="wrap">
+        {error && <p className="err-text">Couldn&apos;t load markets ({error}). Retrying…</p>}
 
-      {groups.map((g) => (
-        <GroupCard key={g.key} group={g} />
-      ))}
-
-      <footer className="muted small">
-        Read-only proof of concept. Quotes use live order books; nothing is signed or submitted. Not available where
-        venues restrict access.
-      </footer>
-    </main>
-  );
-}
-
-function GroupCard({ group }: { group: Group }) {
-  const { asset, at } = groupTitle(group.key);
-  const pairs = group.pairs.filter((p) => p.tier !== "related").concat(group.pairs.filter((p) => p.tier === "related").slice(0, 3));
-  return (
-    <section className="card">
-      <div className="card-head">
-        <h2>
-          {asset} · settles {fmtTime(at)}
-        </h2>
-        <span className={`tier ${group.bestTier}`}>{TIER_LABEL[group.bestTier]}</span>
-      </div>
-      {pairs.map((p) => (
-        <PairRow key={`${p.a.marketId}|${p.b.marketId}`} pair={p} />
-      ))}
-      {group.pairs.length > pairs.length && (
-        <p className="muted small">+{group.pairs.length - pairs.length} more related pairs hidden</p>
-      )}
-    </section>
-  );
-}
-
-function PairRow({ pair }: { pair: Pair }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="pair">
-      <div className="legs">
-        {[pair.a, pair.b].map((l) => (
-          <a key={l.venue + l.marketId} className="leg" href={l.url} target="_blank" rel="noreferrer">
-            <span className="venue">{l.venue}</span>
-            <span className="title">{l.title}</span>
-            <span className="px">
-              yes {pct(l.preview?.yes)} · no {pct(l.preview?.no)}
-            </span>
-          </a>
-        ))}
-      </div>
-      <div className="diffs">
-        <span className={`tier ${pair.tier}`}>{TIER_LABEL[pair.tier]}</span>
-        {pair.diffs.length === 0 && <span className="muted small">identical payout specs</span>}
-        {pair.diffs.map((d) => (
-          <span key={d.field} className={`diff ${d.severity}`} title={`${d.a}  vs  ${d.b}`}>
-            {d.field}: {d.a} ≠ {d.b}
-          </span>
-        ))}
-      </div>
-      {pair.tier !== "related" && (
-        <>
-          <button className="link" onClick={() => setOpen((o) => !o)}>
-            {open ? "Hide quote" : "Quote a route"}
-          </button>
-          {open && <QuoteForm pair={pair} />}
-        </>
-      )}
-    </div>
-  );
-}
-
-function QuoteForm({ pair }: { pair: Pair }) {
-  const [side, setSide] = useState<Side>("yes");
-  const [budget, setBudget] = useState(50);
-  const [allowNear, setAllowNear] = useState(false);
-  const [plan, setPlan] = useState<RoutePlan | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const near = pair.tier === "near-equivalent";
-
-  async function quote() {
-    setBusy(true);
-    setErr(null);
-    setPlan(null);
-    try {
-      const res = await fetch("/api/quote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          markets: [pair.a, pair.b].map((l) => ({ venue: l.venue, marketId: l.marketId })),
-          side,
-          budgetUsd: budget,
-          allowNearEquivalent: allowNear,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setPlan(json.plan);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="quote">
-      <div className="row">
-        <label>
-          Side{" "}
-          <select value={side} onChange={(e) => setSide(e.target.value as Side)}>
-            <option value="yes">YES / Up</option>
-            <option value="no">NO / Down</option>
-          </select>
-        </label>
-        <label>
-          Budget ${" "}
-          <input type="number" min={1} step={1} value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
-        </label>
-        {near && (
-          <label className="warn-label">
-            <input type="checkbox" checked={allowNear} onChange={(e) => setAllowNear(e.target.checked)} /> I accept the
-            differences above (these markets could resolve differently)
-          </label>
+        {!data && !error && (
+          <div className="grid">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="mcard skeleton" />
+            ))}
+          </div>
         )}
-        <button onClick={quote} disabled={busy || (near && !allowNear)}>
-          {busy ? "Quoting…" : "Get route"}
-        </button>
-      </div>
-      {err && <p className="err-text">{err}</p>}
-      {plan && <PlanView plan={plan} />}
-    </div>
-  );
-}
 
-function PlanView({ plan }: { plan: RoutePlan }) {
-  return (
-    <div className="plan">
-      <table>
-        <thead>
-          <tr>
-            <th>Venue</th>
-            <th>Shares</th>
-            <th>Cost</th>
-            <th>Avg</th>
-            <th>Limit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {plan.allocations.map((a) => (
-            <tr key={a.venue + a.marketId}>
-              <td>{a.venue}</td>
-              <td>{a.shares.toFixed(2)}</td>
-              <td>${a.cost.toFixed(2)}</td>
-              <td>{pct(a.avgPrice)}</td>
-              <td>{pct(a.limitPrice)}</td>
-            </tr>
+        {data && markets.length === 0 && (
+          <div className="empty">
+            <p>{query ? `No markets match "${query}".` : "No matching markets right now."}</p>
+            <p className="muted small">New 15-minute markets open every quarter hour. This page refreshes on its own.</p>
+          </div>
+        )}
+
+        <div className="grid">
+          {markets.map((m) => (
+            <MarketCard key={m.key} market={m} onTrade={(mk, side) => setTrade({ key: mk.key, side })} />
           ))}
-        </tbody>
-      </table>
-      <p>
-        Total <strong>{plan.totalShares.toFixed(2)} shares</strong> for ${plan.totalCost.toFixed(2)} (avg{" "}
-        {pct(plan.avgPrice)}). Pays ${plan.totalShares.toFixed(2)} if {plan.side.toUpperCase()} wins.
-      </p>
-      {plan.bestSingleVenue && (
-        <p className="muted">
-          Best single venue: {plan.bestSingleVenue.venue}, {plan.bestSingleVenue.shares.toFixed(2)} shares. Routing adds{" "}
-          <strong>${plan.improvementUsd.toFixed(2)}</strong> of payout.
-        </p>
+        </div>
+
+        {data && (
+          <footer className="status-bar">
+            {data.status.map((s) => (
+              <span key={s.venue} className={`status ${s.ok ? "ok" : "down"}`} title={s.error}>
+                <span className="status-dot" />
+                <VenueLogo venue={s.venue} size={16} />
+                {VENUE[s.venue].name}
+              </span>
+            ))}
+            <span className="muted tiny">Updated {new Date(data.fetchedAt).toLocaleTimeString()}</span>
+          </footer>
+        )}
+      </main>
+
+      {active && trade && (
+        <TradePanel
+          market={active}
+          side={trade.side}
+          onSide={(side) => setTrade({ key: active.key, side })}
+          onClose={() => setTrade(null)}
+        />
       )}
-      <p className="muted small">Dry run: no order was signed or sent.</p>
     </div>
   );
 }
