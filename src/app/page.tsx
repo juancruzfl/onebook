@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Logo } from "@/components/Logo";
 import { MarketCard } from "@/components/MarketCard";
 import { TradePanel } from "@/components/TradePanel";
 import { WalletButton } from "@/components/WalletButton";
 import { toMarketView, type GroupDto, type MarketView } from "@/lib/market-view";
-import { VENUE } from "@/lib/present";
+import { marketCopy, VENUE } from "@/lib/present";
 import type { Side } from "@/lib/venues/types";
 import type { VenueStatus } from "@/lib/venues";
 
@@ -29,6 +30,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("all");
   const [showAll, setShowAll] = useState(false);
+  const [query, setQuery] = useState("");
   const [trade, setTrade] = useState<{ key: string; side: Side } | null>(null);
 
   const load = useCallback(async () => {
@@ -54,8 +56,14 @@ export default function Home() {
       .filter((m) => new Date(m.closeTime).getTime() > Date.now())
       .filter((m) => showAll || m.tier !== "related")
       .filter((m) => tab === "all" || m.asset === tab)
+      .filter((m) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        const c = marketCopy(m.spec);
+        return `${c.title} ${c.subtitle} ${m.asset} ${m.listings.map((l) => l.venue).join(" ")}`.toLowerCase().includes(q);
+      })
       .sort((a, b) => a.closeTime.localeCompare(b.closeTime) || a.asset.localeCompare(b.asset));
-  }, [data, tab, showAll]);
+  }, [data, tab, showAll, query]);
 
   const active = trade ? markets.find((m) => m.key === trade.key) : undefined;
 
@@ -63,19 +71,23 @@ export default function Home() {
     <div className="app">
       <nav className="nav">
         <div className="nav-inner">
-          <span className="brand">
-            <svg className="brand-mark" width="24" height="24" viewBox="0 0 24 24" aria-hidden>
-              <circle cx="9" cy="12" r="7" fill="var(--accent)" opacity="0.55" />
-              <circle cx="15" cy="12" r="7" fill="var(--accent)" />
+          <Logo />
+          <label className="search">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+              <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path d="M20 20l-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
-            onebook
-          </span>
+            <input
+              type="search"
+              placeholder="Search markets"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search markets"
+            />
+          </label>
           <WalletButton />
         </div>
-      </nav>
-
-      <main className="wrap">
-        <div className="toolbar">
+        <div className="nav-inner nav-tabs">
           <div className="tabs" role="tablist">
             {TABS.map((t) => (
               <button
@@ -94,7 +106,9 @@ export default function Home() {
             <span>Show non-combinable</span>
           </label>
         </div>
+      </nav>
 
+      <main className="wrap">
         {error && <p className="err-text">Couldn&apos;t load markets ({error}). Retrying…</p>}
 
         {!data && !error && (
@@ -107,7 +121,7 @@ export default function Home() {
 
         {data && markets.length === 0 && (
           <div className="empty">
-            <p>No matching markets right now.</p>
+            <p>{query ? `No markets match "${query}".` : "No matching markets right now."}</p>
             <p className="muted small">New 15-minute markets open every quarter hour. This page refreshes on its own.</p>
           </div>
         )}
