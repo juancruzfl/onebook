@@ -59,7 +59,7 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Chain Signatures: derive the user's EVM address from their NEAR account (`/api/near/address`) | ✅ done, checked against `v1.signer` |
 | Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
 | Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ verified on mainnet: [tx `BoZABTss…gBE2`](https://nearblocks.io/txns/BoZABTssdxRisVA7g9LGwyXAtADBjcvNW9QFFWnYgBE2), 0.00085 NEAR gas |
-| NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ built; live quotes and deposit transactions verified; first mainnet swap pending |
+| NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ verified on mainnet 2026-11-12: 1.4756 NEAR → 5.105282 USDC at the derived address ([deposit tx `2m3tthjx…moQp9`](https://nearblocks.io/txns/2m3tthjx9LD6qGA9ypHqqDbSnnot8NteCdWHs1omoQp9)), order signed via Chain Signatures and recorded as a funded dry run |
 | Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
 | Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap; first live run pending |
 | Live order submission to Polymarket (international), Hyperliquid | 🚫 dry run only (see Compliance) |
