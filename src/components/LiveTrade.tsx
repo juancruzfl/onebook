@@ -48,13 +48,15 @@ export function LiveTrade({ markets, side, budgetUsd }: { markets: { venue: Venu
 
   if (!status?.enabled) return null;
 
-  const offVenue = markets.find((m) => !isLiveVenue(m.venue));
-  const tradable = markets.filter((m) => isLiveVenue(m.venue) && conns[m.venue as LiveVenue]);
+  // Only regulated venues are ever traded live; the caller passes just those.
+  const live = markets.filter((m) => isLiveVenue(m.venue));
+  const tradable = live.filter((m) => conns[m.venue as LiveVenue]);
   const connectedNames = tradable.map((m) => VENUE[m.venue].name);
-  const blocked = offVenue
-    ? `${VENUE[offVenue.venue].name} is quote-only. Untick "also include" to trade live.`
-    : tradable.length === 0
-      ? "Connect a Kalshi or Polymarket US account to trade live."
+  const blocked =
+    live.length === 0
+      ? "This market isn't listed on Kalshi or Polymarket US right now."
+      : tradable.length === 0
+        ? `Connect your ${live.map((m) => VENUE[m.venue].name).join(" or ")} account to trade live.`
       : budgetUsd > status.maxUsd
         ? `Live limit: ${fmtUsd(status.maxUsd)} per order.`
         : !(budgetUsd > 0)

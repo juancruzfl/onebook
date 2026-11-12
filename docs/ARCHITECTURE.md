@@ -76,7 +76,18 @@ The limit price for each venue becomes the worst acceptable price in the signed 
 `/api/quote` never trusts the client. It re-lists markets, re-extracts and re-compares every pair, and
 only then fetches the books.
 
-## Execution (built; venue submission is a dry run)
+## Execution modes
+
+| Mode | Venues | Account and funds | Order signing | Code |
+|---|---|---|---|---|
+| International (NEAR-native) | On-chain: Polymarket intl (Hyperliquid, Limitless later) | Addresses derived from the NEAR account (Chain Signatures), funded ahead of time through NEAR Intents | MPC signature by the NEAR account (`v1.signer`) | `src/lib/orders`, `src/lib/funding`, `src/lib/withdraw` |
+| US (connected accounts) | CFTC-regulated: Kalshi, Polymarket US | The user's own venue accounts; funded through the venue | Venue API keys held in the user's browser | `src/lib/live` |
+
+Both modes share the venue adapters, extractors, matcher and router: a route is only ever built from
+listings that pay out the same way. A user's location decides which mode (and which venues) they may use;
+each venue's geographic restrictions are enforced, never circumvented.
+
+## International mode: execution (built; venue submission is a dry run)
 
 ### Custody model
 
@@ -123,6 +134,25 @@ clicks.
   concurrent runs. Transient RPC or 1Click errors are retried on the next tick.
 - It survives restarts because all state is in the table. Hackathon scale: one Node process, no broker.
 
+### Trading balance (`src/lib/funding`)
+
+Swapping at trade time takes ~100 s, long enough for a 15-minute market to move. So money is moved to each
+venue's chain **ahead of time**, and trades are paid from what is already there.
+
+- **Funding targets** (`targets.ts`): per chain, the collateral token, the gas token and the address derived
+  from the NEAR account. Today: Polygon (USDC + POL) for Polymarket. A new on-chain venue (Base for Limitless,
+  Solana for DFlow, HyperCore) is a new target, not a new flow.
+- **Add funds** (`engine.ts`): 1Click quotes NEAR → collateral, plus NEAR → gas when the address holds less
+  than ~3 transfers' worth. **One** wrap.near transaction funds both deposit addresses
+  (`wrapAndDepositManyTx`). The worker tracks both legs: DONE when the collateral lands, FAILED (refund to
+  the NEAR account) if it doesn't, EXPIRED if no deposit within 20 minutes. Cap: `MAX_FUND_USD` ($10).
+- **Balance-first orders** (`orders/engine.ts`): if the USDC at the address covers the route's cost, the order
+  is `funding: "balance"`: no 1Click quote, no deposit. Sign → `SWAP_SETTLED` → `ORDER_DRY_RUN` in the same
+  request. The unsigned order expires after 2 minutes (prices move). Otherwise it falls back to the swap flow.
+
+Regulated account venues (Kalshi, Polymarket US) cannot be pre-funded this way: they hold money in an account
+in the user's name and require deposits from the user's own accounts.
+
 ### Withdraw (`src/lib/withdraw`)
 
 The way back: USDC at the user's Polygon address → NEAR in the user's NEAR account.
@@ -145,7 +175,7 @@ POST /:id/signed       server attaches r,s,v, checks the signer recovers to the 
 Gas comes from NEAR Intents too, so the user never needs a Polygon wallet. A later improvement is to
 include a little POL in the buy flow so the gas step disappears.
 
-### Live split orders on regulated venues (`src/lib/live`)
+## US mode: live split orders on regulated venues (`src/lib/live`)
 
 A second execution path, for venues where the user trades from their own verified account instead of an
 on-chain address: Kalshi and Polymarket US (both CFTC-regulated, `LIVE_VENUES`). Users connect their own API
@@ -185,7 +215,7 @@ TODO(verify): Polymarket US BUY_SHORT price convention in a live order (docs say
 the `/v1/account/balances` response shape; Kalshi fractional counts on 15m markets (we send whole contracts);
 WebCrypto Ed25519 support in the user's browser (recent Chrome, Firefox, Safari).
 
-### Gaps before live trading
+## International mode: gaps before live trading
 
 - pUSD: Polymarket V2 settles in pUSD; 1Click delivers USDC. A USDC → pUSD wrap transaction (signed via
   Chain Signatures) is needed, plus the exchange approvals and a little POL for gas (1Click can deliver
@@ -200,7 +230,7 @@ WebCrypto Ed25519 support in the user's browser (recent Chrome, Firefox, Safari)
 - CLOB API credentials, derived by signing Polymarket's auth message through the MPC signer. The server
   stores them. They can only post or cancel orders the user has already signed.
 
-### Chain Signatures facts (verified 2026-11-11)
+## Chain Signatures facts (verified 2026-11-11)
 
 - MPC contracts: `v1.signer` (mainnet), `v1.signer-prod.testnet` (testnet).
 - Derivation path for user EVM addresses: `onebook-evm-1` (`src/lib/near/chainsig.ts`). One path gives
@@ -233,7 +263,7 @@ TODO(verify) before live use: signatureType meanings in V2; timestamp unit (ms a
 address; 1Click supported destination chains and assets (pUSD is probably not a direct 1Click target, so
 a USDC → pUSD wrap step may be needed).
 
-### Venue notes
+## Venue notes
 
 | Venue | Chain | Collateral | Order signing | US status |
 |---|---|---|---|---|

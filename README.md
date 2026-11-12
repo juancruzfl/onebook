@@ -27,10 +27,27 @@ on both legs.
    - **Related**: same asset and time, different payout. Never routed together.
 4. **Quotes a route**: spends a budget across the live order books of fungible markets, cheapest first,
    including fees and venue minimum order sizes, and compares the result with the best single venue.
-5. **Settles through NEAR** *(in progress, see Status)*: the user pays in whatever token they hold. NEAR
-   Intents swaps it into the venue's collateral and delivers it to an address **derived from the user's
-   NEAR account via Chain Signatures**. The same NEAR account signs the venue order through the MPC
-   network, so the position is owned by the user's NEAR account and onebook never holds funds.
+5. **Executes** through one of two modes, depending on the venue (next section).
+
+## Two modes: international (NEAR-native) and US (connected accounts)
+
+Venues come in two kinds, and onebook executes on each the way that venue allows. The matcher and router
+above are shared: the payout-spec check is the same whichever way a venue is reached.
+
+| | **International mode** | **US mode** |
+|---|---|---|
+| Venues | On-chain: Polymarket (international), Hyperliquid; later Limitless, … | CFTC-regulated: Kalshi, Polymarket US |
+| Account | **Your NEAR wallet.** Each venue's address is derived from it with Chain Signatures; no signup | Your own Kalshi / Polymarket US accounts (identity verified by the venue) |
+| Funding | **NEAR Intents, ahead of time**: NEAR → USDC (+ gas) at your address on each venue's chain (trading balance) | The venue's own deposit methods (bank, card, in-app crypto). Deposits must come from accounts in your own name, so NEAR cannot fund them directly |
+| Trading | One NEAR signature per order (MPC-signed venue order), paid from the trading balance | Connect your API keys (kept only in your browser); onebook re-quotes, the browser signs, one fill-or-kill order per venue |
+| Withdraw | Back to your NEAR account through NEAR Intents | The venue's own withdrawal methods |
+| Custody | Addresses only your NEAR account controls; onebook never holds funds | The regulated venue holds your account; onebook never holds keys or funds |
+| Who | Users where those venues are available (they geoblock the US) | US users |
+| Status | Built and verified on mainnet; venue order submission is a **dry run** for the US-based author | Built; first live fill on Polymarket US verified |
+| Later | More chains as funding targets (Base, Solana, HyperCore) | Polymarket US partner (ISV) program: in-app identity check, no API keys; connecting your own key stays an option |
+
+Which mode a user sees depends on where they are: each venue keeps its own geographic restrictions, and
+onebook must enforce them, not route around them (see Compliance).
 
 ### A real example (captured 2026-11-11)
 
@@ -60,9 +77,10 @@ When BTC barely moves in a window, these two markets can resolve in opposite dir
 | Connect wallet (NEAR Mobile, HOT, Meteor, … via `@hot-labs/near-connect`) | ✅ done |
 | Chain Signatures: MPC-signed Polymarket V2 order, verified to recover to the user's address (`/sign-test`) | ✅ verified on mainnet: [tx `BoZABTss…gBE2`](https://nearblocks.io/txns/BoZABTssdxRisVA7g9LGwyXAtADBjcvNW9QFFWnYgBE2), 0.00085 NEAR gas |
 | NEAR Intents (1Click): NEAR → USDC on Polygon, delivered to the user's derived address | ✅ verified on mainnet 2026-11-12: 1.4756 NEAR → 5.105282 USDC at the derived address ([deposit tx `2m3tthjx…moQp9`](https://nearblocks.io/txns/2m3tthjx9LD6qGA9ypHqqDbSnnot8NteCdWHs1omoQp9)), order signed via Chain Signatures and recorded as a funded dry run |
+| Trading balance: add funds ahead of time (NEAR → USDC + POL gas at your Polygon address, one approval, `src/lib/funding`); trades paid from it are sign-and-done (~1 s to prepare, one signature) | ✅ built, unit-tested; balance-paid order verified live up to signing |
 | Withdraw: USDC at your Polygon address → NEAR in your account (gas top-up via Intents, transfer signed via Chain Signatures) (`src/lib/withdraw`) | ✅ verified on mainnet 2026-11-12: 5.105 USDC → 1.4687 NEAR back to the account ([Polygon tx `0xf7bb…899e`](https://polygonscan.com/tx/0xf7bbf842a1f352202980d82d49822512bc934c9a8bacc48ebd872708de90899e)), after a 0.03 NEAR gas top-up |
 | Execution queue: SQLite state machine + worker (`src/lib/orders`) | ✅ done, unit-tested (happy path, refund, expiry, bad signature, limits) |
-| Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ built, unit-tested; off by default, $10 cap; first live run pending |
+| Connect your own Kalshi / Polymarket US account (API key held only in your browser) and place live split orders (`src/lib/live`) | ✅ first live fill 2026-11-12: Polymarket US, 5.73 Down @ ≤ 86¢ (BTC 4:15-4:30 AM ET), fill-or-kill, signed in the browser; Kalshi leg pending (weekly pause); off by default, $10 cap |
 | Live order submission to Polymarket (international), Hyperliquid | 🚫 dry run only (see Compliance) |
 
 ## Try it
@@ -93,7 +111,10 @@ npm test               # unit tests for extractors, matcher, router
    and unused gas refunded. After it lands, the page shows **✓ Valid: the order was signed by your
    address** and links to the NEAR transaction. The order uses a placeholder token id and is never sent
    to Polymarket.
-6. **Execute (spends real NEAR, capped at $10):** connect a wallet, open a market, enter up to $10, then
+6. **Add funds (recommended):** click **Balance** in the nav, then **+ $5** or **+ $10**. One wallet approval
+   sends NEAR; NEAR Intents delivers USDC (and a little POL for fees, if needed) to your Polygon address in
+   about 1-2 minutes. Trades covered by this balance show **· instant** and need only one signature.
+7. **Execute (spends real NEAR, capped at $10):** connect a wallet, open a market, enter up to $10, then
    click **Buy Up · $5 on Polymarket**. A step tracker appears:
    1. **Sign order:** your wallet approves one `v1.signer.sign` call. The Polymarket V2 order (maker = your
       derived Polygon address, limit price from the live book, sized from the swap's guaranteed minimum)
@@ -106,7 +127,9 @@ npm test               # unit tests for extractors, matcher, router
       signed, and records the exact payload it would post. It does not post it (see Compliance).
 
    Links to the NEAR Intents Explorer and Polygonscan appear under the tracker.
-7. **Withdraw:** click **Funds** in the nav. It shows the USDC and POL at your Polygon address. Click
+
+   If your trading balance covers the amount, steps 2 and 3 disappear: sign, and the order is done.
+8. **Withdraw:** click **Balance** in the nav. It shows the USDC and POL at your Polygon address. Click
    **Withdraw to NEAR**. The first time, **Add gas** deposits 0.03 NEAR (about $0.10), which NEAR Intents turns
    into ~1 POL for network fees at your Polygon address. Then **Sign withdrawal**: your NEAR account signs a
    USDC transfer from your Polygon address to a NEAR Intents deposit address (one `v1.signer.sign` approval),
@@ -154,11 +177,16 @@ automatically). If onebook joins it, that becomes the default; connecting your o
 
 ## How NEAR fits
 
-- **NEAR Intents (1Click API):** turns any token the user holds into the collateral each venue settles in,
-  on that venue's chain, in one step, with an automatic refund if the swap cannot settle.
-- **Chain Signatures:** gives every NEAR account its own address on each venue's chain. Positions sit at
-  that address and only the user's NEAR account can sign for it. One NEAR account can hold positions on
-  every venue without separate wallets.
+NEAR is the account and the treasury for international mode; venues are destinations.
+
+- **Chain Signatures:** gives every NEAR account its own address on each venue's chain. Balances and positions
+  sit at those addresses and only the user's NEAR account can sign for them: venue orders, transfers and
+  withdrawals are all MPC-signed by the NEAR account. One NEAR account trades every venue, no extra wallets.
+- **NEAR Intents (1Click API):** moves money between the NEAR account and those addresses: NEAR → USDC (+ gas)
+  on each venue's chain ahead of time (trading balance), and back to NEAR on withdraw, with automatic refunds
+  if a swap cannot settle.
+- US mode does not use NEAR for funds (regulated venues hold accounts in the user's name); it shares the
+  matcher, router and UI.
 
 ## Compliance
 
@@ -184,6 +212,7 @@ src/lib/near/mpc.ts        MPC `sign` transaction + signature conversion (browse
 src/lib/near/wrap.ts       NEAR deposit transaction for a 1Click quote (wrap + transfer)
 src/lib/intents/oneclick.ts  NEAR Intents 1Click API client
 src/lib/orders/*           execution queue: state machine, SQLite store, worker (src/instrumentation.ts)
+src/lib/funding/*          trading balance: funding targets per chain, add-funds flow (NEAR → collateral + gas)
 src/lib/withdraw/*         withdraw: Polygon USDC → NEAR (gas top-up, MPC-signed transfer, 1Click)
 src/lib/chains/polygon.ts  Polygon reads, EIP-1559 transfer building, signature attach + broadcast
 src/lib/polymarket/order.ts  Polymarket CLOB V2 EIP-712 order

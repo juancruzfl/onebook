@@ -37,6 +37,16 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
 - `tests/`: vitest. `tests/fixtures.ts` holds trimmed **real** API responses. When you add an extractor,
   add a real fixture and tests for both acceptance and rejection.
 
+## Two execution modes
+
+- **International (NEAR-native):** on-chain venues, addresses derived from the NEAR account via Chain Signatures,
+  funded ahead of time through NEAR Intents (`src/lib/orders`, `src/lib/funding`, `src/lib/withdraw`).
+- **US (connected accounts):** regulated venues (Kalshi, Polymarket US), the user's own accounts and API keys
+  held in their browser (`src/lib/live`).
+
+Matching and routing are shared. Never mix the two in one order, and never route a user to a venue their
+location does not allow.
+
 ## Rules that must not be broken
 
 1. **Fail closed.** If an extractor does not recognise a market's rules wording, it returns
@@ -59,7 +69,8 @@ Run `npm test && npm run typecheck && npm run lint` before you call a change don
 6. **Execution order of operations:** the venue order is signed and verified (`AWAITING_SIGNATURE` →
    `AWAITING_DEPOSIT_TX`) before the deposit transaction is ever offered. Every wallet prompt is a
    separate user click. Keep `MAX_ORDER_USD` (server) and `MAX_EXEC_USD` (UI) in sync, and never raise
-   the default without the human's approval.
+   the defaults (`MAX_ORDER_USD`, `MAX_FUND_USD`, `MAX_LIVE_USD`) without the human's approval. Funds only move
+   between the user's NEAR account, addresses derived from it, and 1Click deposit addresses.
 7. **Secrets** live in environment variables (`.env.local`, git-ignored). Never commit keys, API
    credentials, seed phrases or submission payloads.
 8. **Never without the human's explicit confirmation:** sign NEAR transactions, spend tokens, place a
