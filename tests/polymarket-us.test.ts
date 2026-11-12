@@ -91,3 +91,16 @@ describe("toMarketView with an equivalent core", () => {
     expect(m.best.yes).toEqual({ price: 0.44, venue: "polymarket-us" });
   });
 });
+
+describe("Polymarket US request sharing", () => {
+  it("shares one fetch per key within the TTL and does not cache failures", async () => {
+    const { cached } = await import("@/lib/venues/polymarket-us");
+    let calls = 0;
+    const load = async () => ++calls;
+    const [a, b] = await Promise.all([cached("t1", 1000, load, 0), cached("t1", 1000, load, 500)]);
+    expect([a, b, calls]).toEqual([1, 1, 1]);
+    expect(await cached("t1", 1000, load, 1500)).toBe(2);
+    await expect(cached("t2", 1000, () => Promise.reject(new Error("429")), 0)).rejects.toThrow();
+    expect(await cached("t2", 1000, async () => "ok", 1)).toBe("ok");
+  });
+});

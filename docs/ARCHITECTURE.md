@@ -233,3 +233,9 @@ markets on Solana.
 - Polymarket's 2026 TWAP wording does not say where the 60s window sits. It is modelled as
   `anchor: "unspecified"`, which keeps BTC pairs at near-equivalent even if the oracles were the same.
 - Market previews in the UI come from listing endpoints. Only `/api/quote` reads live books.
+- Polymarket US public books are served through a CDN cache (`cache-control: max-age=30`), so a quote can
+  use a book up to 30 s old. Live legs are fill-or-kill, so a stale price fails safely (not filled) rather
+  than overpaying. Fix later with the markets WebSocket (`/v1/ws/markets`).
+- Kalshi pauses trading Thursdays 3-5 AM ET (`/exchange/status` → `trading_active: false`); its 15m
+  markets disappear from the open list then, and cards show the other venues only.
+- Venue requests send `User-Agent: onebook-router/0.1`. Polymarket US's CDN throttles Node's default agent.
